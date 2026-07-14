@@ -14,7 +14,7 @@ algorithm and exports the result.
 
 1. Create a project at https://supabase.com.
 2. In the SQL Editor, run the migrations in `supabase/migrations/` **in
-   order** (0001, 0002, 0003, 0004, 0005).
+   order** (0001, 0002, 0003, 0004, 0005, 0006).
 3. In **Authentication > Providers**, ensure Email is enabled.
 4. In **Authentication > URL Configuration**, set your site URL (e.g. your
    Vercel/Netlify deployment URL) and add `/login/reset` as an allowed

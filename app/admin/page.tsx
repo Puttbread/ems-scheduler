@@ -145,6 +145,27 @@ export default function AdminDashboard() {
     load();
   }
 
+  async function deleteSchedule(id: string, label: string) {
+    const confirmed = window.confirm(
+      `Permanently delete the schedule ${label}? This removes all availability, preferences, and assignments for this cycle. This cannot be undone.`
+    );
+    if (!confirmed) return;
+    const doubleConfirmed = window.confirm('Really delete it? This is permanent.');
+    if (!doubleConfirmed) return;
+
+    await supabase.from('schedules').delete().eq('id', id);
+    load();
+  }
+
+  async function unlockSchedule(id: string) {
+    const confirmed = window.confirm(
+      'Reopen this schedule for editing? Employees will be able to change their availability again, and you can re-run the schedule once they\'re done.'
+    );
+    if (!confirmed) return;
+    await supabase.from('schedules').update({ status: 'collecting' }).eq('id', id);
+    load();
+  }
+
   function exportUrl(id: string, format: 'csv' | 'xlsx') {
     return `/api/schedule/export?scheduleId=${id}&format=${format}`;
   }
@@ -240,7 +261,7 @@ export default function AdminDashboard() {
                       <span className={`status-pill ${s.status}`}>{s.status}</span>
                     </td>
                     <td>{s.shortfall_days > 0 ? `${s.shortfall_days} day(s)` : '—'}</td>
-                    <td style={{ display: 'flex', gap: 8 }}>
+                    <td style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                       <button
                         className="btn secondary"
                         onClick={() => runSchedule(s.id)}
@@ -252,6 +273,11 @@ export default function AdminDashboard() {
                           ? 'Re-run'
                           : 'Run schedule'}
                       </button>
+                      {(s.status === 'published' || s.status === 'processing') && (
+                        <button className="btn secondary" onClick={() => unlockSchedule(s.id)}>
+                          Unlock for editing
+                        </button>
+                      )}
                       {s.status === 'published' && (
                         <>
                           <a className="btn secondary" href={exportUrl(s.id, 'xlsx')}>
@@ -262,6 +288,12 @@ export default function AdminDashboard() {
                           </a>
                         </>
                       )}
+                      <button
+                        className="btn danger"
+                        onClick={() => deleteSchedule(s.id, `${s.start_date} → ${s.end_date}`)}
+                      >
+                        Delete
+                      </button>
                     </td>
                   </tr>
                 ))}
