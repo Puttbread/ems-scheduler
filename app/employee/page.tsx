@@ -33,7 +33,13 @@ export default function EmployeePage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [schedule, setSchedule] = useState<any | null>(null);
   const [availability, setAvailability] = useState<Record<string, AvailOption>>({});
-  const [hours, setHours] = useState({ vacation_hours: 0, ed_hours: 0, other_hours: 0 });
+  const [hours, setHours] = useState({
+    vacation_hours: 0,
+    ed_hours: 0,
+    other_hours: 0,
+    is_ready: false,
+    ready_at: null as string | null,
+  });
   const [assignments, setAssignments] = useState<any[]>([]);
   const [saving, setSaving] = useState<string | null>(null);
 
@@ -80,7 +86,7 @@ export default function EmployeePage() {
 
       const { data: ch } = await supabase
         .from('cycle_hours')
-        .select('vacation_hours, ed_hours, other_hours')
+        .select('vacation_hours, ed_hours, other_hours, is_ready, ready_at')
         .eq('schedule_id', current.id)
         .eq('employee_id', user.id)
         .maybeSingle();
@@ -100,6 +106,31 @@ export default function EmployeePage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const [bulkOption, setBulkOption] = useState<AvailOption>('available_24');
+  const [bulkApplying, setBulkApplying] = useState(false);
+
+  async function applyToAllDays() {
+    if (!schedule || !userId) return;
+    const confirmed = window.confirm(
+      `Set all 42 days to "${OPTION_LABELS[bulkOption]}"? This overwrites any days you've already filled in.`
+    );
+    if (!confirmed) return;
+
+    setBulkApplying(true);
+    const allDays = Array.from({ length: 42 }, (_, i) => addDays(schedule.start_date, i));
+    const rows = allDays.map((date) => ({
+      employee_id: userId,
+      schedule_id: schedule.id,
+      work_date: date,
+      option: bulkOption,
+    }));
+
+    await supabase.from('availability').upsert(rows, { onConflict: 'employee_id,schedule_id,work_date' });
+
+    setAvailability(Object.fromEntries(allDays.map((d) => [d, bulkOption])));
+    setBulkApplying(false);
+  }
 
   async function updateAvailability(date: string, option: AvailOption) {
     if (!schedule || !userId) return;
@@ -126,6 +157,27 @@ export default function EmployeePage() {
         vacation_hours: hours.vacation_hours,
         ed_hours: hours.ed_hours,
         other_hours: hours.other_hours,
+        is_ready: hours.is_ready,
+        ready_at: hours.ready_at,
+      },
+      { onConflict: 'employee_id,schedule_id' }
+    );
+  }
+
+  async function toggleReady() {
+    if (!schedule || !userId) return;
+    const nextReady = !hours.is_ready;
+    const nextReadyAt = nextReady ? new Date().toISOString() : null;
+    setHours((h) => ({ ...h, is_ready: nextReady, ready_at: nextReadyAt }));
+    await supabase.from('cycle_hours').upsert(
+      {
+        employee_id: userId,
+        schedule_id: schedule.id,
+        vacation_hours: hours.vacation_hours,
+        ed_hours: hours.ed_hours,
+        other_hours: hours.other_hours,
+        is_ready: nextReady,
+        ready_at: nextReadyAt,
       },
       { onConflict: 'employee_id,schedule_id' }
     );
@@ -176,12 +228,77 @@ export default function EmployeePage() {
 
         {isCollecting ? (
           <>
+            <div
+              className="card"
+              style={{
+                borderColor: hours.is_ready ? 'var(--green)' : 'var(--amber-dim)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 12,
+              }}
+            >
+              <div>
+                <h2 style={{ marginBottom: 4 }}>
+                  {hours.is_ready ? '✓ Marked ready' : 'Availability not yet marked ready'}
+                </h2>
+                <p style={{ color: 'var(--muted)', fontSize: '0.85rem', margin: 0 }}>
+                  {hours.is_ready
+                    ? `Your administrator can see you're done. Marked ready ${
+                        hours.ready_at ? new Date(hours.ready_at).toLocaleString() : ''
+                      }. You can still make changes below -- just re-mark ready if you do.`
+                    : "Once you've filled out every day below and your hours, mark yourself ready so your administrator knows you're done."}
+                </p>
+              </div>
+              <button
+                className={hours.is_ready ? 'btn secondary' : 'btn'}
+                onClick={toggleReady}
+              >
+                {hours.is_ready ? 'Mark not ready' : "I'm ready"}
+              </button>
+            </div>
+
             <div className="card">
               <h2>Your availability</h2>
               <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
                 Set your availability for each day. This locks once the administrator runs the
                 schedule.
               </p>
+
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 8,
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  background: 'var(--panel-2)',
+                  border: '1px solid var(--line)',
+                  borderRadius: 4,
+                  padding: '10px 12px',
+                  marginBottom: 16,
+                }}
+              >
+                <span style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>Quick fill:</span>
+                <select
+                  value={bulkOption}
+                  onChange={(e) => setBulkOption(e.target.value as AvailOption)}
+                  style={{ fontSize: '0.82rem' }}
+                >
+                  {Object.entries(OPTION_LABELS).map(([val, label]) => (
+                    <option key={val} value={val}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+                <button className="btn secondary" onClick={applyToAllDays} disabled={bulkApplying}>
+                  {bulkApplying ? 'Applying…' : 'Apply to all 42 days'}
+                </button>
+                <span style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>
+                  You can still adjust individual days below afterward.
+                </span>
+              </div>
+
               <div className="calendar-grid" style={{ marginTop: 16 }}>
                 {days.map((date) => {
                   const d = new Date(date + 'T00:00:00Z');

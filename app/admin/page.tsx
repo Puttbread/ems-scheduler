@@ -19,6 +19,9 @@ export default function AdminDashboard() {
   const [creating, setCreating] = useState(false);
   const [runningId, setRunningId] = useState<string | null>(null);
   const [runResult, setRunResult] = useState<any | null>(null);
+  const [readiness, setReadiness] = useState<
+    { id: string; full_name: string; is_ready: boolean; ready_at: string | null }[]
+  >([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -27,6 +30,34 @@ export default function AdminDashboard() {
       .select('*')
       .order('start_date', { ascending: false });
     setSchedules(data ?? []);
+
+    const collecting = (data ?? []).find((s) => s.status === 'collecting');
+    if (collecting) {
+      const [{ data: employees }, { data: hoursRows }] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('id, full_name')
+          .eq('active', true)
+          .eq('role', 'employee')
+          .order('full_name'),
+        supabase
+          .from('cycle_hours')
+          .select('employee_id, is_ready, ready_at')
+          .eq('schedule_id', collecting.id),
+      ]);
+      const readyMap = new Map((hoursRows ?? []).map((h) => [h.employee_id, h]));
+      setReadiness(
+        (employees ?? []).map((e) => ({
+          id: e.id,
+          full_name: e.full_name,
+          is_ready: readyMap.get(e.id)?.is_ready ?? false,
+          ready_at: readyMap.get(e.id)?.ready_at ?? null,
+        }))
+      );
+    } else {
+      setReadiness([]);
+    }
+
     setLoading(false);
   }, [supabase]);
 
@@ -141,6 +172,48 @@ export default function AdminDashboard() {
             immediately.
           </p>
         </div>
+
+        {readiness.length > 0 && (
+          <div className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h2 style={{ marginBottom: 0 }}>Availability status</h2>
+              <span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
+                {readiness.filter((r) => r.is_ready).length} of {readiness.length} ready
+              </span>
+            </div>
+            <p style={{ color: 'var(--muted)', fontSize: '0.8rem', marginTop: 4 }}>
+              For the cycle currently collecting availability.
+            </p>
+            <table style={{ marginTop: 12 }}>
+              <thead>
+                <tr>
+                  <th>Employee</th>
+                  <th>Status</th>
+                  <th>Marked ready</th>
+                </tr>
+              </thead>
+              <tbody>
+                {readiness.map((r) => (
+                  <tr key={r.id}>
+                    <td>{r.full_name}</td>
+                    <td>
+                      <span
+                        className="status-pill"
+                        style={{
+                          color: r.is_ready ? 'var(--green)' : 'var(--amber)',
+                          borderColor: r.is_ready ? '#2c4a34' : 'var(--amber-dim)',
+                        }}
+                      >
+                        {r.is_ready ? 'Ready' : 'Not ready'}
+                      </span>
+                    </td>
+                    <td>{r.ready_at ? new Date(r.ready_at).toLocaleString() : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         {loading ? (
           <p>Loading…</p>

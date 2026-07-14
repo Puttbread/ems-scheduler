@@ -50,7 +50,8 @@ export async function GET(request: Request) {
   const { data: employees } = await supabase
     .from('profiles')
     .select('id, full_name, fte')
-    .eq('active', true);
+    .eq('active', true)
+    .eq('role', 'employee');
 
   type Row = {
     Date: string;

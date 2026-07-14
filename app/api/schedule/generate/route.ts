@@ -55,7 +55,7 @@ export async function POST(request: Request) {
 
   const [{ data: employees }, { data: availability }, { data: preferences }, { data: partners }, { data: cycleHours }, { data: overrides }] =
     await Promise.all([
-      supabase.from('profiles').select('id, full_name, fte, is_sch_employee').eq('active', true),
+      supabase.from('profiles').select('id, full_name, fte, is_sch_employee').eq('active', true).eq('role', 'employee'),
       supabase.from('availability').select('employee_id, work_date, option').eq('schedule_id', scheduleId),
       supabase.from('preferences').select('*').eq('schedule_id', scheduleId),
       supabase.from('preferred_partners').select('employee_id, partner_id').eq('schedule_id', scheduleId),
