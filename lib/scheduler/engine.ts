@@ -92,11 +92,8 @@ function attemptGeneration(
       assignedHours: 0,
       weekendDaysWorked: 0,
       fridaysWorked: 0,
-      currentConsecutiveDays: 0,
-      lastWorkedDate: null,
-      lastShiftEndsAt: null,
       maxConsecutiveShifts: prefs?.maxConsecutiveShifts ?? 3,
-      recentShifts: [],
+      shifts: [],
       isSchEmployee: emp.isSchEmployee,
       scheduleStartDate: input.startDate,
       hoursByWeek: new Array(6).fill(0),
@@ -164,73 +161,61 @@ function attemptGeneration(
     }
   }
 
+  // Build the full list of (date, slotNumber) pairs for the cycle, in
+  // chronological order.
+  const allSlots: { date: string; slotNumber: 1 | 2 }[] = [];
   for (let dayOffset = 0; dayOffset < CYCLE_DAYS; dayOffset++) {
     const date = addDays(input.startDate, dayOffset);
+    allSlots.push({ date, slotNumber: 1 }, { date, slotNumber: 2 });
+  }
 
-    for (const slotNumber of [1, 2] as const) {
-      const fullOverride = overrides.get(`${date}|${slotNumber}|full_24`);
-      if (fullOverride) {
-        if (fullOverride.overrideType === 'fixed') {
-          commit(fullOverride.employeeId!, date, slotNumber, 'full_24');
-        }
-        // exempt: skip entirely, no unfilled flag
-        continue;
+  // Pre-pass: resolve every slot that has an override first. A slot with
+  // a full_24 override is fully handled here. A slot with a day_12 and/or
+  // night_12 override can never use full_24 (it can't span a portion
+  // that's separately controlled), so both halves are resolved as plain
+  // 12hr shifts here too, independent of the two-pass split below.
+  const pendingForFullPass: { date: string; slotNumber: 1 | 2 }[] = [];
+  for (const { date, slotNumber } of allSlots) {
+    const fullOverride = overrides.get(`${date}|${slotNumber}|full_24`);
+    if (fullOverride) {
+      if (fullOverride.overrideType === 'fixed') {
+        commit(fullOverride.employeeId!, date, slotNumber, 'full_24');
       }
-
-      const dayOverride = overrides.get(`${date}|${slotNumber}|day_12`);
-      const nightOverride = overrides.get(`${date}|${slotNumber}|night_12`);
-
-      if (dayOverride || nightOverride) {
-        // One half is admin-controlled -- full_24 is no longer a valid
-        // option for this slot, since it can't span a portion that's
-        // separately exempted/fixed. Resolve each half independently.
-        resolveHalf(date, slotNumber, 'day_12');
-        resolveHalf(date, slotNumber, 'night_12');
-        continue;
-      }
-
-      // No overrides for this slot -- normal algorithm as before.
-      const dayCandidate = pickBest(employeeIds, date, 'day_12');
-      const nightCandidate = pickBest(
-        employeeIds.filter((id) => id !== dayCandidate?.employeeId),
-        date,
-        'night_12'
-      );
-      const full24Candidate = pickBest(employeeIds, date, 'full_24');
-
-      const splitScore =
-        dayCandidate && nightCandidate ? dayCandidate.score + nightCandidate.score : -Infinity;
-      const fullScore = full24Candidate ? full24Candidate.score : -Infinity;
-
-      if (splitScore === -Infinity && fullScore === -Infinity) {
-        // Neither a full split nor a full_24 works as a complete pair --
-        // fall back to filling whichever half we can independently, and
-        // record the other half as unfilled so it surfaces to the admin.
-        if (dayCandidate) {
-          commit(dayCandidate.employeeId, date, slotNumber, 'day_12');
-        } else {
-          unfilledSlots.push({ date, slotNumber, shiftType: 'day_12' });
-        }
-        const nightFallback = pickBest(
-          employeeIds.filter((id) => id !== dayCandidate?.employeeId),
-          date,
-          'night_12'
-        );
-        if (nightFallback) {
-          commit(nightFallback.employeeId, date, slotNumber, 'night_12');
-        } else {
-          unfilledSlots.push({ date, slotNumber, shiftType: 'night_12' });
-        }
-        continue;
-      }
-
-      if (splitScore >= fullScore) {
-        commit(dayCandidate!.employeeId, date, slotNumber, 'day_12');
-        commit(nightCandidate!.employeeId, date, slotNumber, 'night_12');
-      } else {
-        commit(full24Candidate!.employeeId, date, slotNumber, 'full_24');
-      }
+      continue; // exempt or fixed, either way this slot is done
     }
+    const dayOverride = overrides.get(`${date}|${slotNumber}|day_12`);
+    const nightOverride = overrides.get(`${date}|${slotNumber}|night_12`);
+    if (dayOverride || nightOverride) {
+      resolveHalf(date, slotNumber, 'day_12');
+      resolveHalf(date, slotNumber, 'night_12');
+      continue;
+    }
+    pendingForFullPass.push({ date, slotNumber });
+  }
+
+  // Pass 1: across the ENTIRE cycle, fill as many slots as possible with
+  // a single full_24 assignment before considering any 12hr split. This
+  // is a deliberate ordering choice -- per spec, a 24hr availability
+  // pick should be used as a 24hr shift wherever the rules allow it,
+  // rather than being outscored by two 12hr picks summing higher.
+  const pendingForSplitPass: { date: string; slotNumber: 1 | 2 }[] = [];
+  for (const { date, slotNumber } of pendingForFullPass) {
+    const full24Candidate = pickBest(employeeIds, date, 'full_24');
+    if (full24Candidate) {
+      commit(full24Candidate.employeeId, date, slotNumber, 'full_24');
+    } else {
+      pendingForSplitPass.push({ date, slotNumber });
+    }
+  }
+
+  // Pass 2: whatever's left after pass 1 gets filled with 12hr day/night
+  // shifts, each half resolved independently and only from employees who
+  // specifically indicated 12hr availability for that half (or last
+  // resort) -- someone who only marked available_24 was reserved for
+  // pass 1 and won't be pulled into a 12hr shift here.
+  for (const { date, slotNumber } of pendingForSplitPass) {
+    resolveHalf(date, slotNumber, 'day_12');
+    resolveHalf(date, slotNumber, 'night_12');
   }
 
   const employeeHoursSummary: GenerateScheduleResult['employeeHoursSummary'] = {};
@@ -261,5 +246,5 @@ function hasWeekendCounterpart(
   const dow = new Date(date + 'T00:00:00Z').getUTCDay();
   if (dow !== 0) return false;
   const fridayDate = addDays(date, -2);
-  return states.get(employeeId)?.lastWorkedDate === fridayDate;
+  return states.get(employeeId)?.shifts.some((s) => s.date === fridayDate) ?? false;
 }

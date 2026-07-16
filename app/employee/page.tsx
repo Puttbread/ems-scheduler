@@ -164,12 +164,14 @@ export default function EmployeePage() {
     );
   }
 
+  const [readyError, setReadyError] = useState<string | null>(null);
+
   async function toggleReady() {
     if (!schedule || !userId) return;
+    setReadyError(null);
     const nextReady = !hours.is_ready;
     const nextReadyAt = nextReady ? new Date().toISOString() : null;
-    setHours((h) => ({ ...h, is_ready: nextReady, ready_at: nextReadyAt }));
-    await supabase.from('cycle_hours').upsert(
+    const { error } = await supabase.from('cycle_hours').upsert(
       {
         employee_id: userId,
         schedule_id: schedule.id,
@@ -181,6 +183,11 @@ export default function EmployeePage() {
       },
       { onConflict: 'employee_id,schedule_id' }
     );
+    if (error) {
+      setReadyError(`Couldn't save: ${error.message}`);
+      return; // don't update local state if the write actually failed
+    }
+    setHours((h) => ({ ...h, is_ready: nextReady, ready_at: nextReadyAt }));
   }
 
   if (loading) {
@@ -257,6 +264,11 @@ export default function EmployeePage() {
               >
                 {hours.is_ready ? 'Mark not ready' : "I'm ready"}
               </button>
+              {readyError && (
+                <p style={{ color: 'var(--red)', fontSize: '0.8rem', width: '100%', margin: 0 }}>
+                  {readyError}
+                </p>
+              )}
             </div>
 
             <div className="card">

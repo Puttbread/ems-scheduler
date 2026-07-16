@@ -198,9 +198,14 @@ export default function AdminDashboard() {
           <div className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h2 style={{ marginBottom: 0 }}>Availability status</h2>
-              <span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
-                {readiness.filter((r) => r.is_ready).length} of {readiness.length} ready
-              </span>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <span style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
+                  {readiness.filter((r) => r.is_ready).length} of {readiness.length} ready
+                </span>
+                <button className="btn secondary" onClick={load} style={{ padding: '4px 10px', fontSize: '0.75rem' }}>
+                  Refresh
+                </button>
+              </div>
             </div>
             <p style={{ color: 'var(--muted)', fontSize: '0.8rem', marginTop: 4 }}>
               For the cycle currently collecting availability.

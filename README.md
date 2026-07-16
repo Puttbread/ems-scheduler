@@ -57,15 +57,23 @@ npm run dev
 
 ## How scheduling works
 
-See `lib/scheduler/engine.ts` for the full algorithm. In short: for every
-day and every one of the two required coverage slots, it scores every
-eligible employee (based on availability, weighted preferences, and hard
-constraints like rest periods and consecutive-shift caps) and assigns the
-best-scoring option, deciding per slot whether one 24-hour shift or a
-day/night 12-hour pair works better. If any employee can't reach their FTE
-target hours (240 x FTE per 6-week cycle, minus reported vacation/ED/other
-hours), it reduces every employee's target by one day and retries, tracking
-how many days were shorted for the export note.
+See `lib/scheduler/engine.ts` for the full algorithm. It runs in two
+passes: first, across the entire 6-week cycle, it fills as many slots as
+possible with a single 24-hour shift (using only employees who marked
+`available_24` that day). Whatever's left after that pass is filled with
+12-hour day/night shifts in a second pass, pulling only from employees who
+specifically marked 12-hour availability for that half (or "available last
+resort," which applies broadly). This ordering means a 24-hour
+availability pick is never edged out by two 12-hour picks scoring higher
+in combination -- it's used as a 24hr shift wherever the rules allow.
+
+Within each pass, every eligible employee for a slot is scored (based on
+availability weight and preference bonuses) and the highest-scoring
+eligible option wins, subject to hard constraints (rest periods --
+checked against the nearest neighboring shift in time, not simply "the
+last one assigned," so the two-pass ordering can't produce an unsafe
+gap -- consecutive-shift caps, weekend/Friday limits, the 110hr/10-day
+cap, and FTE targets).
 
 Unfilled coverage slots are allowed (not every shift will always have
 someone available) and are surfaced to the admin after a run, though they

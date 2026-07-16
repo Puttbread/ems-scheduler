@@ -25,6 +25,18 @@ function isFriday(date: string): boolean {
   return new Date(date + 'T00:00:00Z').getUTCDay() === 5;
 }
 
+export function daysBetween(from: string, to: string): number {
+  const a = new Date(from + 'T00:00:00Z').getTime();
+  const b = new Date(to + 'T00:00:00Z').getTime();
+  return Math.round((b - a) / 86_400_000);
+}
+
+export function addDays(date: string, days: number): string {
+  const d = new Date(date + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 /**
  * Checks every hard rule from the spec for a candidate (employee, date,
  * shiftType) assignment, given their current accumulated state. Returns
@@ -33,6 +45,12 @@ function isFriday(date: string): boolean {
  * These are HARD constraints -- unlike preferences, none of these are
  * weighted or negotiable. A candidate that fails any of these is simply
  * not eligible for this slot, full stop.
+ *
+ * Rest/streak checks work by finding this candidate shift's nearest
+ * neighbors IN TIME among the employee's already-assigned shifts (not
+ * "the most recently assigned shift"), since the two-pass algorithm can
+ * insert an earlier-dated shift after a later-dated one has already been
+ * committed.
  */
 export function checkHardConstraints(
   state: EmployeeState,
@@ -42,28 +60,31 @@ export function checkHardConstraints(
   const { startMs, endMs } = shiftWindow(date, type);
   const hours = shiftHours(type);
 
-  // Already working this day in the other slot / overlapping window.
-  if (state.lastWorkedDate === date) {
-    // A same-day second assignment would only make sense as the other
-    // half of a day_12/night_12 pair for a DIFFERENT slot number, but
-    // slot filling is handled per-slot-number by the caller, which never
-    // reuses a candidate across slot numbers on the same day. If we get
-    // here it means the same slot's day and night halves are both being
-    // considered for one person as a full_24 -- that's handled by the
-    // caller choosing full_24 directly, not by two calls. So a repeat
-    // same-day call here is always a conflict.
-    return 'already assigned this day';
+  const windows = state.shifts.map((s) => ({ ...shiftWindow(s.date, s.type), date: s.date }));
+
+  // Overlap / same-day conflict check.
+  if (windows.some((w) => w.startMs < endMs && startMs < w.endMs)) {
+    return 'overlaps an existing shift';
   }
 
-  // 10 hours minimum rest between shifts.
-  if (state.lastShiftEndsAt !== null) {
-    const gapHours = (startMs - state.lastShiftEndsAt) / 3_600_000;
-    if (gapHours < 10) return 'insufficient rest (<10hrs)';
+  // Nearest neighbor before and after this candidate, by time.
+  let prevEnd: number | null = null;
+  let nextStart: number | null = null;
+  for (const w of windows) {
+    if (w.endMs <= startMs && (prevEnd === null || w.endMs > prevEnd)) prevEnd = w.endMs;
+    if (w.startMs >= endMs && (nextStart === null || w.startMs < nextStart)) nextStart = w.startMs;
   }
 
+  // 10 hours minimum rest between shifts, checked on both sides.
+  if (prevEnd !== null && (startMs - prevEnd) / 3_600_000 < 10) {
+    return 'insufficient rest before this shift (<10hrs)';
+  }
+  if (nextStart !== null && (nextStart - endMs) / 3_600_000 < 10) {
+    return 'insufficient rest after this shift (<10hrs)';
+  }
   // No more than 24 hours without a break -- automatically satisfied
-  // since max single shift is 24hrs and the rest check above prevents
-  // immediate continuation into another shift. No separate check needed.
+  // since max single shift is 24hrs and the 10hr rest checks above
+  // prevent immediate continuation into another shift.
 
   // Weekend cap: must work exactly 2 weekend days, never more than 2.
   if (isWeekendDay(date) && state.weekendDaysWorked >= 2) {
@@ -76,25 +97,33 @@ export function checkHardConstraints(
   }
 
   // Consecutive-shifts-worked cap. Per clarified spec: the streak
-  // continues as long as the gap since the last shift ended is 24 hours
-  // or less; a gap longer than 24 hours breaks the cycle. This is a
-  // duration check against lastShiftEndsAt, not calendar-day adjacency --
-  // e.g. a night shift ending at hour 24 followed by a shift starting
-  // exactly 24 hours later still counts as consecutive.
-  const gapHoursSinceLast =
-    state.lastShiftEndsAt !== null ? (startMs - state.lastShiftEndsAt) / 3_600_000 : null;
-  const wouldBeStreak =
-    gapHoursSinceLast !== null && gapHoursSinceLast <= 24 ? state.currentConsecutiveDays + 1 : 1;
-  if (wouldBeStreak > state.maxConsecutiveShifts) {
+  // continues as long as the gap since the adjoining shift is 24 hours
+  // or less. Computed by walking outward from the candidate through its
+  // sorted neighbors in both directions, counting how many are chained
+  // by <=24hr gaps.
+  const sorted = [...windows, { startMs, endMs, date }].sort((a, b) => a.startMs - b.startMs);
+  const candidateIndex = sorted.findIndex((w) => w.startMs === startMs && w.endMs === endMs);
+  let streak = 1;
+  for (let i = candidateIndex - 1; i >= 0; i--) {
+    const gap = (sorted[i + 1].startMs - sorted[i].endMs) / 3_600_000;
+    if (gap <= 24) streak++;
+    else break;
+  }
+  for (let i = candidateIndex + 1; i < sorted.length; i++) {
+    const gap = (sorted[i].startMs - sorted[i - 1].endMs) / 3_600_000;
+    if (gap <= 24) streak++;
+    else break;
+  }
+  if (streak > state.maxConsecutiveShifts) {
     return `exceeds max consecutive shifts (${state.maxConsecutiveShifts})`;
   }
 
   // 110 hours per rolling 10-day window (window ends at this shift's date).
   const windowStart = addDays(date, -9);
   const hoursInWindow =
-    state.recentShifts
+    state.shifts
       .filter((s) => s.date >= windowStart && s.date <= date)
-      .reduce((sum, s) => sum + s.hours, 0) + hours;
+      .reduce((sum, s) => sum + shiftHours(s.type), 0) + hours;
   if (hoursInWindow > 110) return 'exceeds 110hrs/10-day cap';
 
   // SCH Employee weekly cap: fte * 40 hours in any single calendar week
@@ -117,39 +146,15 @@ export function checkHardConstraints(
   return null;
 }
 
-export function isNextCalendarDay(prev: string, next: string): boolean {
-  return addDays(prev, 1) === next;
-}
-
-export function addDays(date: string, days: number): string {
-  const d = new Date(date + 'T00:00:00Z');
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-export function daysBetween(from: string, to: string): number {
-  const a = new Date(from + 'T00:00:00Z').getTime();
-  const b = new Date(to + 'T00:00:00Z').getTime();
-  return Math.round((b - a) / 86_400_000);
-}
-
 /** Mutates state to reflect a newly made assignment. */
 export function applyAssignment(state: EmployeeState, date: string, type: ShiftType): void {
-  const { startMs, endMs } = shiftWindow(date, type);
   const hours = shiftHours(type);
 
   state.assignedHours += hours;
-  state.recentShifts.push({ date, hours });
+  state.shifts.push({ date, type });
 
   if (isWeekendDay(date)) state.weekendDaysWorked += 1;
   if (isFriday(date)) state.fridaysWorked += 1;
-
-  const gapHoursSinceLast =
-    state.lastShiftEndsAt !== null ? (startMs - state.lastShiftEndsAt) / 3_600_000 : null;
-  state.currentConsecutiveDays =
-    gapHoursSinceLast !== null && gapHoursSinceLast <= 24 ? state.currentConsecutiveDays + 1 : 1;
-  state.lastWorkedDate = date;
-  state.lastShiftEndsAt = endMs;
 
   if (state.isSchEmployee) {
     const weekIndex = Math.floor(daysBetween(state.scheduleStartDate, date) / 7);

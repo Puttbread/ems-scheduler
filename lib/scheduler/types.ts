@@ -90,12 +90,13 @@ export interface EmployeeState {
   assignedHours: number;
   weekendDaysWorked: number; // Sat/Sun count, hard cap 2
   fridaysWorked: number; // hard cap 1
-  currentConsecutiveDays: number;
-  lastWorkedDate: string | null; // ISO date of most recent assigned day
-  lastShiftEndsAt: number | null; // epoch ms, for the 10hr rest check
   maxConsecutiveShifts: number;
-  // rolling 10-day hours: list of {date, hours} for the 10-day window check
-  recentShifts: { date: string; hours: number }[];
+  // Every shift assigned so far this cycle, used to derive rest gaps,
+  // streaks, and the 10-day rolling window -- NOT assumed to be in
+  // chronological insertion order, since the two-pass algorithm (full_24
+  // pass across the whole cycle, then a 12hr pass for what's left) can
+  // insert an earlier-dated shift after a later-dated one.
+  shifts: { date: string; type: ShiftType }[];
   // SCH Employee weekly cap support
   isSchEmployee: boolean;
   scheduleStartDate: string; // needed to bucket a date into a cycle week index

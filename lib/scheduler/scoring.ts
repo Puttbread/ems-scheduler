@@ -5,16 +5,20 @@ import type { AvailabilityOption, PreferencesInput, ShiftType } from './types';
  * Each day an employee picks exactly ONE of the 5 dropdown options (not
  * one per shift type), which determines both what shift types they're
  * eligible for that day and the base weight of that eligibility:
- *   - available_24        -> eligible for day_12, night_12, or full_24 @ 1.0
+ *   - available_24         -> eligible for full_24 ONLY @ 1.0. Someone who
+ *     said they're available all day is reserved for a 24hr shift, not
+ *     pulled into a 12hr half -- if they specifically wanted a 12hr shift
+ *     they'd have picked available_12_day/night instead.
  *   - available_12_day     -> eligible for day_12 only @ 1.0
  *   - available_12_night   -> eligible for night_12 only @ 1.0
- *   - available_last_resort -> eligible for any shift type @ 0.5
+ *   - available_last_resort -> eligible for any shift type @ 0.5 (the
+ *     deliberate fallback category, so it stays broad)
  *   - not_available        -> ineligible for everything
  */
 export function availabilityWeight(option: AvailabilityOption, type: ShiftType): number | null {
   switch (option) {
     case 'available_24':
-      return 1.0;
+      return type === 'full_24' ? 1.0 : null;
     case 'available_12_day':
       return type === 'day_12' ? 1.0 : null;
     case 'available_12_night':
