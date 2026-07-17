@@ -24,8 +24,6 @@ export default function AdminDashboard() {
   >([]);
   const [readinessSchedule, setReadinessSchedule] = useState<any | null>(null);
 
-  const [debugInfo, setDebugInfo] = useState<any>(null);
-
   const load = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase
@@ -45,10 +43,7 @@ export default function AdminDashboard() {
       );
     }
     if (collecting) {
-      const [
-        { data: employees, error: employeesError },
-        { data: hoursRows, error: hoursError },
-      ] = await Promise.all([
+      const [{ data: employees }, { data: hoursRows }] = await Promise.all([
         supabase
           .from('profiles')
           .select('id, full_name')
@@ -60,13 +55,6 @@ export default function AdminDashboard() {
           .select('employee_id, is_ready, ready_at')
           .eq('schedule_id', collecting.id),
       ]);
-      setDebugInfo({
-        queriedScheduleId: collecting.id,
-        employees,
-        employeesError: employeesError?.message ?? null,
-        hoursRows,
-        hoursError: hoursError?.message ?? null,
-      });
       const readyMap = new Map((hoursRows ?? []).map((h) => [h.employee_id, h]));
       setReadiness(
         (employees ?? []).map((e) => ({
@@ -78,7 +66,6 @@ export default function AdminDashboard() {
       );
     } else {
       setReadiness([]);
-      setDebugInfo(null);
     }
 
     setLoading(false);
@@ -244,17 +231,6 @@ export default function AdminDashboard() {
           <div className="warn-note" style={{ borderColor: 'var(--red)', color: 'var(--red)' }}>
             {actionError}
           </div>
-        )}
-
-        {debugInfo && (
-          <details className="card" style={{ fontSize: '0.78rem' }}>
-            <summary style={{ cursor: 'pointer', color: 'var(--amber)' }}>
-              Debug: raw readiness query data (temporary, click to expand)
-            </summary>
-            <pre style={{ whiteSpace: 'pre-wrap', color: 'var(--muted)', marginTop: 10 }}>
-              {JSON.stringify(debugInfo, null, 2)}
-            </pre>
-          </details>
         )}
 
         {readiness.length > 0 ? (

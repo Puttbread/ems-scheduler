@@ -66,6 +66,21 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  if (user && isEmployeeRoute) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', user.id)
+      .single();
+    if (profile?.role === 'admin') {
+      // An admin account has no business submitting availability/preferences
+      // under its own ID -- that data would silently be excluded from the
+      // schedulable employee pool, which is confusing to debug. Send them
+      // back to the admin dashboard instead.
+      return NextResponse.redirect(new URL('/admin', request.url));
+    }
+  }
+
   return response;
 }
 
