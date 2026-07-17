@@ -118,6 +118,7 @@ export default function EmployeePage() {
     if (!confirmed) return;
 
     setBulkApplying(true);
+    setSaveError(null);
     const allDays = Array.from({ length: 42 }, (_, i) => addDays(schedule.start_date, i));
     const rows = allDays.map((date) => ({
       employee_id: userId,
@@ -126,17 +127,25 @@ export default function EmployeePage() {
       option: bulkOption,
     }));
 
-    await supabase.from('availability').upsert(rows, { onConflict: 'employee_id,schedule_id,work_date' });
+    const { error } = await supabase
+      .from('availability')
+      .upsert(rows, { onConflict: 'employee_id,schedule_id,work_date' });
 
-    setAvailability(Object.fromEntries(allDays.map((d) => [d, bulkOption])));
     setBulkApplying(false);
+    if (error) {
+      setSaveError(`Couldn't apply to all days: ${error.message}`);
+      return;
+    }
+    setAvailability(Object.fromEntries(allDays.map((d) => [d, bulkOption])));
   }
+
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   async function updateAvailability(date: string, option: AvailOption) {
     if (!schedule || !userId) return;
-    setAvailability((prev) => ({ ...prev, [date]: option }));
     setSaving(date);
-    await supabase.from('availability').upsert(
+    setSaveError(null);
+    const { error } = await supabase.from('availability').upsert(
       {
         employee_id: userId,
         schedule_id: schedule.id,
@@ -146,6 +155,11 @@ export default function EmployeePage() {
       { onConflict: 'employee_id,schedule_id,work_date' }
     );
     setSaving(null);
+    if (error) {
+      setSaveError(`Couldn't save ${date}: ${error.message}`);
+      return; // don't update local display if the write actually failed
+    }
+    setAvailability((prev) => ({ ...prev, [date]: option }));
   }
 
   async function saveHours() {
@@ -232,6 +246,15 @@ export default function EmployeePage() {
           </div>
           <span className={`status-pill ${schedule.status}`}>{schedule.status}</span>
         </div>
+
+        {!isCollecting && (
+          <div className="warn-note">
+            This schedule is <strong>{schedule.status}</strong>, not collecting availability.
+            Your view below is read-only. If you need to make changes, ask your administrator to
+            unlock the schedule for editing.
+          </div>
+        )}
+        {saveError && <div className="warn-note" style={{ borderColor: 'var(--red)', color: 'var(--red)' }}>{saveError}</div>}
 
         {isCollecting ? (
           <>

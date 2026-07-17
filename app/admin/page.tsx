@@ -22,6 +22,7 @@ export default function AdminDashboard() {
   const [readiness, setReadiness] = useState<
     { id: string; full_name: string; is_ready: boolean; ready_at: string | null }[]
   >([]);
+  const [readinessSchedule, setReadinessSchedule] = useState<any | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -32,6 +33,15 @@ export default function AdminDashboard() {
     setSchedules(data ?? []);
 
     const collecting = (data ?? []).find((s) => s.status === 'collecting');
+    setReadinessSchedule(collecting ?? null);
+    const openCount = (data ?? []).filter((s) => s.status === 'collecting' || s.status === 'processing').length;
+    if (openCount > 1) {
+      setActionError(
+        `Warning: ${openCount} schedules are currently open (collecting/processing) at once. ` +
+          `The readiness panel and "Run schedule" only ever apply to one specific cycle at a time -- ` +
+          `double-check you're looking at the same one you intend to run, or unlock/delete the extra cycle.`
+      );
+    }
     if (collecting) {
       const [{ data: employees }, { data: hoursRows }] = await Promise.all([
         supabase
@@ -67,6 +77,17 @@ export default function AdminDashboard() {
 
   async function createSchedule() {
     if (!newStart) return;
+
+    const openSchedule = schedules.find((s) => s.status === 'collecting' || s.status === 'processing');
+    if (openSchedule) {
+      const proceed = window.confirm(
+        `There's already an open cycle (${openSchedule.start_date} → ${openSchedule.end_date}, status: ${openSchedule.status}). ` +
+          `Having two open cycles at once is a common source of confusion -- employee availability and the "ready" panel ` +
+          `will only ever reflect ONE of them. Are you sure you want to create another?`
+      );
+      if (!proceed) return;
+    }
+
     setCreating(true);
 
     const { data: created } = await supabase
@@ -212,7 +233,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {readiness.length > 0 && (
+        {readiness.length > 0 ? (
           <div className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <h2 style={{ marginBottom: 0 }}>Availability status</h2>
@@ -226,7 +247,8 @@ export default function AdminDashboard() {
               </div>
             </div>
             <p style={{ color: 'var(--muted)', fontSize: '0.8rem', marginTop: 4 }}>
-              For the cycle currently collecting availability.
+              For {readinessSchedule?.start_date} → {readinessSchedule?.end_date} (the cycle
+              currently collecting availability).
             </p>
             <table style={{ marginTop: 12 }}>
               <thead>
@@ -257,6 +279,17 @@ export default function AdminDashboard() {
               </tbody>
             </table>
           </div>
+        ) : (
+          !loading && (
+            <div className="card">
+              <p style={{ color: 'var(--muted)', margin: 0 }}>
+                No schedule is currently collecting availability, so there's nothing to show
+                readiness for. If you expected to see one, check that the schedule you're working
+                with is in "collecting" status below (use "Unlock for editing" if it was already
+                run).
+              </p>
+            </div>
+          )
         )}
 
         {loading ? (
