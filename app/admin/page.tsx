@@ -145,6 +145,8 @@ export default function AdminDashboard() {
     load();
   }
 
+  const [actionError, setActionError] = useState<string | null>(null);
+
   async function deleteSchedule(id: string, label: string) {
     const confirmed = window.confirm(
       `Permanently delete the schedule ${label}? This removes all availability, preferences, and assignments for this cycle. This cannot be undone.`
@@ -153,7 +155,12 @@ export default function AdminDashboard() {
     const doubleConfirmed = window.confirm('Really delete it? This is permanent.');
     if (!doubleConfirmed) return;
 
-    await supabase.from('schedules').delete().eq('id', id);
+    setActionError(null);
+    const { error } = await supabase.from('schedules').delete().eq('id', id);
+    if (error) {
+      setActionError(`Couldn't delete: ${error.message}`);
+      return;
+    }
     load();
   }
 
@@ -162,7 +169,12 @@ export default function AdminDashboard() {
       'Reopen this schedule for editing? Employees will be able to change their availability again, and you can re-run the schedule once they\'re done.'
     );
     if (!confirmed) return;
-    await supabase.from('schedules').update({ status: 'collecting' }).eq('id', id);
+    setActionError(null);
+    const { error } = await supabase.from('schedules').update({ status: 'collecting' }).eq('id', id);
+    if (error) {
+      setActionError(`Couldn't unlock: ${error.message}`);
+      return;
+    }
     load();
   }
 
@@ -193,6 +205,12 @@ export default function AdminDashboard() {
             immediately.
           </p>
         </div>
+
+        {actionError && (
+          <div className="warn-note" style={{ borderColor: 'var(--red)', color: 'var(--red)' }}>
+            {actionError}
+          </div>
+        )}
 
         {readiness.length > 0 && (
           <div className="card">
