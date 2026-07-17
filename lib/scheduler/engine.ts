@@ -127,13 +127,22 @@ function attemptGeneration(
     type: ShiftType
   ): Candidate | null {
     let best: Candidate | null = null;
+    let bestRatio = Infinity; // assignedHours / effectiveTargetHours of the current leader
     for (const employeeId of candidateIds) {
       const option = availability.get(employeeId)?.get(date) ?? 'not_available';
       if (availabilityWeight(option, type) === null) continue;
       const state = states.get(employeeId)!;
       if (checkHardConstraints(state, date, type)) continue;
       const score = scoreCandidate(employeeId, date, type);
-      if (!best || score > best.score) best = { employeeId, score };
+      // Load-balancing ratio: how far along this employee already is
+      // toward their own target. Lower = further behind = more deserving
+      // on a tie. An employee with 0 target (fully covered by vacation
+      // etc.) is treated as "already full" so they don't wrongly win ties.
+      const ratio = state.effectiveTargetHours > 0 ? state.assignedHours / state.effectiveTargetHours : 1;
+      if (!best || score > best.score || (score === best.score && ratio < bestRatio)) {
+        best = { employeeId, score };
+        bestRatio = ratio;
+      }
     }
     return best;
   }

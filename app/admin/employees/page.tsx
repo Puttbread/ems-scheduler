@@ -10,6 +10,7 @@ export default function EmployeesAdminPage() {
   const [loading, setLoading] = useState(true);
   const [newEmail, setNewEmail] = useState('');
   const [newName, setNewName] = useState('');
+  const [newUsername, setNewUsername] = useState('');
   const [inviteMsg, setInviteMsg] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -23,9 +24,14 @@ export default function EmployeesAdminPage() {
     load();
   }, [load]);
 
-  async function updateField(id: string, field: string, value: any) {
+  function updateLocal(id: string, field: string, value: any) {
     setStaff((prev) => prev.map((s) => (s.id === id ? { ...s, [field]: value } : s)));
-    await supabase.from('profiles').update({ [field]: value }).eq('id', id);
+  }
+
+  async function updateField(id: string, field: string, value: any) {
+    updateLocal(id, field, value);
+    const { error } = await supabase.from('profiles').update({ [field]: value }).eq('id', id);
+    if (error) setInviteMsg(`Couldn't save ${field}: ${error.message}`);
   }
 
   async function sendReset(email: string) {
@@ -37,7 +43,7 @@ export default function EmployeesAdminPage() {
   }
 
   async function inviteEmployee() {
-    if (!newEmail || !newName) return;
+    if (!newEmail || !newName || !newUsername) return;
     setInviteMsg(null);
     // Employees are created via Supabase Auth invite (magic link) -- new
     // accounts default to role 'employee' and fte 1.00 via the profiles
@@ -45,15 +51,16 @@ export default function EmployeesAdminPage() {
     // be enabled in the Supabase Auth settings for your project.
     const { error } = await supabase.auth.signInWithOtp({
       email: newEmail,
-      options: { data: { full_name: newName } },
+      options: { data: { full_name: newName, username: newUsername } },
     });
     setInviteMsg(
       error
         ? error.message
-        : `Invite sent to ${newEmail}. Once they sign in, add their profile row with the correct name/FTE below if it doesn't appear automatically.`
+        : `Invite sent to ${newEmail}. They'll log in with the username "${newUsername}". Once they sign in, add their profile row with the correct name/FTE below if it doesn't appear automatically.`
     );
     setNewEmail('');
     setNewName('');
+    setNewUsername('');
     load();
   }
 
@@ -70,6 +77,10 @@ export default function EmployeesAdminPage() {
             <div className="form-row" style={{ marginBottom: 0 }}>
               <label>Full name</label>
               <input value={newName} onChange={(e) => setNewName(e.target.value)} />
+            </div>
+            <div className="form-row" style={{ marginBottom: 0 }}>
+              <label>Username</label>
+              <input value={newUsername} onChange={(e) => setNewUsername(e.target.value)} />
             </div>
             <div className="form-row" style={{ marginBottom: 0 }}>
               <label>Email</label>
@@ -96,6 +107,7 @@ export default function EmployeesAdminPage() {
               <thead>
                 <tr>
                   <th>Name</th>
+                  <th>Username</th>
                   <th>Role</th>
                   <th>FTE</th>
                   <th>SCH Employee</th>
@@ -106,7 +118,22 @@ export default function EmployeesAdminPage() {
               <tbody>
                 {staff.map((s) => (
                   <tr key={s.id}>
-                    <td>{s.full_name}</td>
+                    <td>
+                      <input
+                        value={s.full_name}
+                        onChange={(e) => updateLocal(s.id, 'full_name', e.target.value)}
+                        onBlur={(e) => updateField(s.id, 'full_name', e.target.value)}
+                        style={{ width: 130 }}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        value={s.username}
+                        onChange={(e) => updateLocal(s.id, 'username', e.target.value)}
+                        onBlur={(e) => updateField(s.id, 'username', e.target.value)}
+                        style={{ width: 110 }}
+                      />
+                    </td>
                     <td>
                       <select
                         value={s.role}

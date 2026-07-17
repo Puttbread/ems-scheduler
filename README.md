@@ -14,7 +14,7 @@ algorithm and exports the result.
 
 1. Create a project at https://supabase.com.
 2. In the SQL Editor, run the migrations in `supabase/migrations/` **in
-   order** (0001, 0002, 0003, 0004, 0005, 0006).
+   order** (0001 through 0008).
 3. In **Authentication > Providers**, ensure Email is enabled.
 4. In **Authentication > URL Configuration**, set your site URL (e.g. your
    Vercel/Netlify deployment URL) and add `/login/reset` as an allowed
@@ -23,8 +23,9 @@ algorithm and exports the result.
 
 ## 2. Create the first administrator
 
-New signups default to `role = 'employee'` via the `profiles` table. To
-create your first admin:
+New signups default to `role = 'employee'` via the `profiles` table, and
+get a `username` (used to log in) either from the invite form or, if none
+was given, derived from their email. To create your first admin:
 
 1. Have them sign in once (via an invite you send from **Authentication >
    Users > Invite user** in the Supabase dashboard, or via the app's staff
@@ -33,6 +34,14 @@ create your first admin:
    ```sql
    update profiles set role = 'admin' where email = 'admin@example.com';
    ```
+3. Optionally set a nicer username for them too:
+   ```sql
+   update profiles set username = 'admin' where email = 'admin@example.com';
+   ```
+
+Login is username-based, not email-based -- the login page resolves the
+typed username to the account's real email behind the scenes before
+authenticating.
 
 ## 3. Configure environment variables
 

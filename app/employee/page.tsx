@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { TopBar } from '@/components/TopBar';
+import { WeekedCalendar } from '@/components/WeekedCalendar';
 
 type AvailOption =
   | 'available_24'
@@ -334,31 +335,34 @@ export default function EmployeePage() {
                 </span>
               </div>
 
-              <div className="calendar-grid" style={{ marginTop: 16 }}>
-                {days.map((date) => {
-                  const d = new Date(date + 'T00:00:00Z');
-                  return (
-                    <div className="day-cell" key={date}>
-                      <div className="date-label">
-                        {DOW[d.getUTCDay()]} {date.slice(5)}
+              <div style={{ marginTop: 16 }}>
+                <WeekedCalendar
+                  startDate={schedule.start_date}
+                  renderDay={(date) => {
+                    const d = new Date(date + 'T00:00:00Z');
+                    return (
+                      <div className="day-cell" key={date}>
+                        <div className="date-label">
+                          {DOW[d.getUTCDay()]} {date.slice(5)}
+                        </div>
+                        <select
+                          value={availability[date] ?? 'not_available'}
+                          onChange={(e) => updateAvailability(date, e.target.value as AvailOption)}
+                          style={{ fontSize: '0.72rem', padding: '4px 6px' }}
+                        >
+                          {Object.entries(OPTION_LABELS).map(([val, label]) => (
+                            <option key={val} value={val}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                        {saving === date && (
+                          <span style={{ fontSize: '0.65rem', color: 'var(--amber)' }}>saving…</span>
+                        )}
                       </div>
-                      <select
-                        value={availability[date] ?? 'not_available'}
-                        onChange={(e) => updateAvailability(date, e.target.value as AvailOption)}
-                        style={{ fontSize: '0.72rem', padding: '4px 6px' }}
-                      >
-                        {Object.entries(OPTION_LABELS).map(([val, label]) => (
-                          <option key={val} value={val}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                      {saving === date && (
-                        <span style={{ fontSize: '0.65rem', color: 'var(--amber)' }}>saving…</span>
-                      )}
-                    </div>
-                  );
-                })}
+                    );
+                  }}
+                />
               </div>
             </div>
 
@@ -405,32 +409,35 @@ export default function EmployeePage() {
         ) : (
           <div className="card">
             <h2>Assigned schedule</h2>
-            <div className="calendar-grid" style={{ marginTop: 16 }}>
-              {days.map((date) => {
-                const d = new Date(date + 'T00:00:00Z');
-                const dayShifts = assignments.filter((a) => a.shift_slots?.work_date === date);
-                return (
-                  <div className="day-cell" key={date}>
-                    <div className="date-label">
-                      {DOW[d.getUTCDay()]} {date.slice(5)}
+            <div style={{ marginTop: 16 }}>
+              <WeekedCalendar
+                startDate={schedule.start_date}
+                renderDay={(date) => {
+                  const d = new Date(date + 'T00:00:00Z');
+                  const dayShifts = assignments.filter((a) => a.shift_slots?.work_date === date);
+                  return (
+                    <div className="day-cell" key={date}>
+                      <div className="date-label">
+                        {DOW[d.getUTCDay()]} {date.slice(5)}
+                      </div>
+                      {dayShifts.map((a, i) => {
+                        const type = a.shift_slots.shift_type;
+                        const mine = a.employee_id === userId;
+                        const cls = type === 'full_24' ? 'full24' : type === 'day_12' ? 'day' : 'night';
+                        return (
+                          <span
+                            key={i}
+                            className={`badge ${cls}`}
+                            style={mine ? { boxShadow: '0 0 0 1.5px var(--amber)' } : undefined}
+                          >
+                            {a.profiles?.full_name ?? '—'}
+                          </span>
+                        );
+                      })}
                     </div>
-                    {dayShifts.map((a, i) => {
-                      const type = a.shift_slots.shift_type;
-                      const mine = a.employee_id === userId;
-                      const cls = type === 'full_24' ? 'full24' : type === 'day_12' ? 'day' : 'night';
-                      return (
-                        <span
-                          key={i}
-                          className={`badge ${cls}`}
-                          style={mine ? { boxShadow: '0 0 0 1.5px var(--amber)' } : undefined}
-                        >
-                          {a.profiles?.full_name ?? '—'}
-                        </span>
-                      );
-                    })}
-                  </div>
-                );
-              })}
+                  );
+                }}
+              />
             </div>
             <p style={{ color: 'var(--muted)', fontSize: '0.8rem', marginTop: 12 }}>
               Your shifts are outlined in amber.

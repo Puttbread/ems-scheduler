@@ -24,7 +24,9 @@ export function TopBar({ role }: { role: 'employee' | 'admin' }) {
         {role === 'employee' ? (
           <>
             <Link href="/employee">Schedule</Link>
+            <Link href="/employee/history">History</Link>
             <Link href="/preferences">Preferences</Link>
+            <Link href="/employee/account">Account</Link>
           </>
         ) : (
           <>

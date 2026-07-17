@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 export default function LoginPage() {
   const router = useRouter();
   const supabase = createClient();
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -17,10 +17,20 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
     setLoading(true);
+
+    const { data: email, error: lookupError } = await supabase.rpc('get_email_for_username', {
+      p_username: username,
+    });
+    if (lookupError || !email) {
+      setLoading(false);
+      setError('Invalid username or password.');
+      return;
+    }
+
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (error) {
-      setError(error.message);
+      setError('Invalid username or password.');
       return;
     }
     router.push('/');
@@ -28,11 +38,18 @@ export default function LoginPage() {
   }
 
   async function handleResetRequest() {
-    if (!email) {
-      setError('Enter your email above first, then click "Forgot password".');
+    if (!username) {
+      setError('Enter your username above first, then click "Forgot password".');
       return;
     }
     setError(null);
+    const { data: email, error: lookupError } = await supabase.rpc('get_email_for_username', {
+      p_username: username,
+    });
+    if (lookupError || !email) {
+      setError('Invalid username or password.');
+      return;
+    }
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/login/reset`,
     });
@@ -51,12 +68,12 @@ export default function LoginPage() {
           <div className="eyebrow">Sign in</div>
           <form onSubmit={handleLogin}>
             <div className="form-row">
-              <label htmlFor="email">Email</label>
+              <label htmlFor="username">Username</label>
               <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                id="username"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 required
                 autoComplete="username"
               />
