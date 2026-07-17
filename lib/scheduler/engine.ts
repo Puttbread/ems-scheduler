@@ -25,27 +25,59 @@ type AvailabilityMap = Map<string, Map<string, AvailabilityInput['option']>>;
  * Public entry point. Retries with progressively reduced per-employee
  * target hours ("one day removed" per iteration, per spec) until every
  * employee's assigned hours reach their own effective FTE target, or
- * until a safety iteration cap is hit (returns the best attempt so far
- * if so). Unfilled coverage slots do NOT trigger a retry on their own --
- * it's expected and acceptable that some shifts go uncovered when there
- * simply aren't enough available people; those are reported to the admin
- * via `unfilledSlots` rather than treated as a failure to fix.
+ * until a safety iteration cap is hit. Unfilled coverage slots do NOT
+ * trigger a retry on their own -- it's expected and acceptable that some
+ * shifts go uncovered when there simply aren't enough available people;
+ * those are reported to the admin via `unfilledSlots` rather than
+ * treated as a failure to fix.
+ *
+ * IMPORTANT: tracks and returns the BEST attempt seen across all
+ * iterations (by total shortfall hours), not simply the last one. Later
+ * iterations are not guaranteed to be better -- once a low-FTE employee's
+ * target is reduced to 0, they become ineligible for any shift at all,
+ * shrinking the pool of people available to cover each other's rest-period
+ * gaps. With uneven FTEs, later iterations can end up WORSE than earlier
+ * ones, so blindly using the final iteration risks handing back a badly
+ * collapsed schedule even when an earlier attempt was much better.
  */
 export function generateSchedule(input: GenerateScheduleInput): GenerateScheduleResult {
   let shortfallDays = 0;
-  let last: Omit<GenerateScheduleResult, 'shortfallDays'> | null = null;
   const EPSILON = 0.01; // float tolerance for the hours comparison
 
+  let best: Omit<GenerateScheduleResult, 'shortfallDays'> | null = null;
+  let bestShortfallDays = 0;
+  let bestScore = Infinity; // total shortfall hours across all employees, lower is better
+  let iterationsSinceImprovement = 0;
+
   while (shortfallDays <= MAX_SHORTFALL_ITERATIONS) {
-    last = attemptGeneration(input, shortfallDays);
-    const anyoneShort = Object.values(last.employeeHoursSummary).some(
+    const attempt = attemptGeneration(input, shortfallDays);
+    const totalShortfallHours = Object.values(attempt.employeeHoursSummary).reduce(
+      (sum, s) => sum + Math.max(0, s.effectiveTargetHours - s.assignedHours),
+      0
+    );
+
+    if (totalShortfallHours < bestScore - EPSILON) {
+      best = attempt;
+      bestScore = totalShortfallHours;
+      bestShortfallDays = shortfallDays;
+      iterationsSinceImprovement = 0;
+    } else {
+      iterationsSinceImprovement += 1;
+    }
+
+    const anyoneShort = Object.values(attempt.employeeHoursSummary).some(
       (s) => s.assignedHours < s.effectiveTargetHours - EPSILON
     );
     if (!anyoneShort) break;
+    // Stop early if reducing further hasn't helped in a while -- once low-FTE
+    // employees' targets hit 0, more reduction only shrinks the eligible
+    // pool without addressing the actual shortfall, so continuing is
+    // pointless and wastes computation.
+    if (iterationsSinceImprovement >= 3) break;
     shortfallDays += 1;
   }
 
-  return { ...last!, shortfallDays };
+  return { ...best!, shortfallDays: bestShortfallDays };
 }
 
 function attemptGeneration(
