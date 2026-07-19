@@ -22,70 +22,58 @@ interface Candidate {
 type AvailabilityMap = Map<string, Map<string, AvailabilityInput['option']>>;
 
 /**
- * Public entry point. Retries with progressively reduced per-employee
- * target hours ("one day removed" per iteration, per spec) until every
- * employee's assigned hours reach their own effective FTE target, or
- * until a safety iteration cap is hit. Unfilled coverage slots do NOT
- * trigger a retry on their own -- it's expected and acceptable that some
- * shifts go uncovered when there simply aren't enough available people;
- * those are reported to the admin via `unfilledSlots` rather than
- * treated as a failure to fix.
+ * Public entry point. Uniformly reduces every employee's target by one
+ * more day (24hrs) per iteration -- per spec -- and returns the FIRST
+ * (smallest) reduction level at which every employee genuinely reaches
+ * their equally-reduced target. This is a fairness guarantee: if anyone
+ * is short, everyone gets reduced together and re-checked, rather than
+ * letting some employees hit their full target while others fall short
+ * unevenly.
  *
- * IMPORTANT: tracks and returns the BEST attempt seen across all
- * iterations (by total shortfall hours), not simply the last one. Later
- * iterations are not guaranteed to be better -- once a low-FTE employee's
- * target is reduced to 0, they become ineligible for any shift at all,
- * shrinking the pool of people available to cover each other's rest-period
- * gaps. With uneven FTEs, later iterations can end up WORSE than earlier
- * ones, so blindly using the final iteration risks handing back a badly
- * collapsed schedule even when an earlier attempt was much better.
+ * If that fairness condition is never achieved within the iteration cap
+ * (e.g. one structurally-constrained employee can never be satisfied no
+ * matter how far targets are reduced), falls back to whichever attempt
+ * produced the most total hours actually worked -- this avoids the
+ * catastrophic collapse failure mode where blindly continuing to reduce
+ * shrinks the eligible pool (low-FTE employees hit a 0 target and become
+ * permanently ineligible) and makes the outcome progressively worse.
  */
 export function generateSchedule(input: GenerateScheduleInput): GenerateScheduleResult {
   let shortfallDays = 0;
   const EPSILON = 0.01; // float tolerance for the hours comparison
 
-  let best: Omit<GenerateScheduleResult, 'shortfallDays'> | null = null;
-  let bestShortfallDays = 0;
-  // Maximize total hours actually assigned across everyone. This is
-  // deliberately NOT "minimize shortfall relative to each attempt's own
-  // target" -- that comparison is unfair across iterations, since the
-  // target itself shrinks each round. A later round can look "fully
-  // satisfied" simply because its target got small enough to trivially
-  // meet, even though strictly fewer real hours were worked overall.
-  // Maximizing actual hours worked directly favors the least-aggressive
-  // reduction that gets the job done, matching what you'd actually want.
-  let bestScore = -Infinity;
-  let iterationsSinceImprovement = 0;
+  let fallback: Omit<GenerateScheduleResult, 'shortfallDays'> | null = null;
+  let fallbackShortfallDays = 0;
+  let fallbackScore = -Infinity; // total hours actually assigned, higher is better
 
   while (shortfallDays <= MAX_SHORTFALL_ITERATIONS) {
     const attempt = attemptGeneration(input, shortfallDays);
+
     const totalAssignedHours = Object.values(attempt.employeeHoursSummary).reduce(
       (sum, s) => sum + s.assignedHours,
       0
     );
-
-    if (totalAssignedHours > bestScore + EPSILON) {
-      best = attempt;
-      bestScore = totalAssignedHours;
-      bestShortfallDays = shortfallDays;
-      iterationsSinceImprovement = 0;
-    } else {
-      iterationsSinceImprovement += 1;
+    if (totalAssignedHours > fallbackScore + EPSILON) {
+      fallback = attempt;
+      fallbackScore = totalAssignedHours;
+      fallbackShortfallDays = shortfallDays;
     }
 
     const anyoneShort = Object.values(attempt.employeeHoursSummary).some(
       (s) => s.assignedHours < s.effectiveTargetHours - EPSILON
     );
-    if (!anyoneShort) break;
-    // Stop early if reducing further hasn't helped in a while -- once low-FTE
-    // employees' targets hit 0, more reduction only shrinks the eligible
-    // pool without addressing the actual shortfall, so continuing is
-    // pointless and wastes computation.
-    if (iterationsSinceImprovement >= 3) break;
+    if (!anyoneShort) {
+      // Everyone genuinely reached this reduction level's target -- this
+      // is the fair, correct answer. Stop here rather than searching
+      // further (which would only reduce everyone's hours needlessly).
+      return { ...attempt, shortfallDays };
+    }
+
     shortfallDays += 1;
   }
 
-  return { ...best!, shortfallDays: bestShortfallDays };
+  // Never achieved full fairness within the cap -- best-effort fallback.
+  return { ...fallback!, shortfallDays: fallbackShortfallDays };
 }
 
 function attemptGeneration(
