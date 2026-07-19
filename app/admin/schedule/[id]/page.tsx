@@ -38,6 +38,8 @@ export default function ScheduleDetailPage() {
   const [ovEmployee, setOvEmployee] = useState('');
   const [ovNote, setOvNote] = useState('');
 
+  const [allEmployees, setAllEmployees] = useState<any[]>([]);
+
   const load = useCallback(async () => {
     setLoading(true);
     const { data: sched } = await supabase.from('schedules').select('*').eq('id', id).single();
@@ -51,6 +53,14 @@ export default function ScheduleDetailPage() {
 
     const { data: dir } = await supabase.from('staff_directory').select('id, full_name');
     setStaff(dir ?? []);
+
+    const { data: emps } = await supabase
+      .from('profiles')
+      .select('id, full_name, fte')
+      .eq('active', true)
+      .eq('role', 'employee')
+      .order('full_name');
+    setAllEmployees(emps ?? []);
 
     const { data: ov } = await supabase
       .from('schedule_overrides')
@@ -145,6 +155,57 @@ export default function ScheduleDetailPage() {
             workable result.
           </div>
         )}
+
+        <div style={{ marginTop: 12 }}>
+          <a className="btn secondary" href={`/admin/schedule/${id}/print`} target="_blank" rel="noreferrer">
+            Printable view
+          </a>
+        </div>
+
+        <div className="card" style={{ marginTop: 20 }}>
+          <h2>Staffing summary</h2>
+          <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
+            Target hours are FTE x 240, minus this schedule's shortfall reduction. Use this to
+            check whether the shortfall is landing evenly across everyone.
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th>FTE</th>
+                <th>Target hours</th>
+                <th>Assigned hours</th>
+                <th>Shifts</th>
+                <th>Difference</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allEmployees.map((e) => {
+                const theirs = assignments.filter((a) => a.employee_id === e.id);
+                const assignedHours = theirs.reduce(
+                  (sum, a) => sum + (a.shift_slots?.shift_type === 'full_24' ? 24 : 12),
+                  0
+                );
+                const rawTarget = Number(e.fte) * 240 - (schedule.shortfall_days ?? 0) * 24;
+                const targetHours = Math.max(0, rawTarget);
+                const diff = assignedHours - targetHours;
+                return (
+                  <tr key={e.id}>
+                    <td>{e.full_name}</td>
+                    <td>{e.fte}</td>
+                    <td>{targetHours}</td>
+                    <td>{assignedHours}</td>
+                    <td>{theirs.length}</td>
+                    <td style={{ color: diff < -0.01 ? 'var(--red)' : 'var(--green)' }}>
+                      {diff > 0 ? '+' : ''}
+                      {diff}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
 
         <div className="card" style={{ marginTop: 20 }}>
           <h2>Overrides</h2>

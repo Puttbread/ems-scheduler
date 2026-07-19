@@ -13,6 +13,8 @@ import { availabilityWeight, computeScore } from './scoring';
 const CYCLE_DAYS = 42;
 const HOURS_PER_FTE = 240; // 1.0 FTE = 40hrs/week x 6 weeks, per clarified spec
 const MAX_SHORTFALL_ITERATIONS = 15;
+const ATTEMPTS_PER_LEVEL = 30; // random-shuffle retries at each shortfall level before escalating
+const TIME_BUDGET_MS = 20_000; // hard wall-clock cutoff, well under typical serverless timeouts
 
 interface Candidate {
   employeeId: string;
@@ -21,58 +23,90 @@ interface Candidate {
 
 type AvailabilityMap = Map<string, Map<string, AvailabilityInput['option']>>;
 
+/** Fisher-Yates shuffle -- returns a new shuffled copy, doesn't mutate input. */
+function shuffle<T>(arr: T[]): T[] {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
 /**
  * Public entry point. Uniformly reduces every employee's target by one
- * more day (24hrs) per iteration -- per spec -- and returns the FIRST
- * (smallest) reduction level at which every employee genuinely reaches
- * their equally-reduced target. This is a fairness guarantee: if anyone
- * is short, everyone gets reduced together and re-checked, rather than
- * letting some employees hit their full target while others fall short
- * unevenly.
+ * more day (24hrs) per level -- per spec. At EACH level, tries up to
+ * ATTEMPTS_PER_LEVEL random fill orderings (since fill order is
+ * shuffled) and looks for one where every employee genuinely reaches
+ * their equally-reduced target -- a single unlucky shuffle shouldn't
+ * cause the algorithm to give up on a level that a different shuffle
+ * could have satisfied. Among multiple fair results at the same level,
+ * prefers whichever left the fewest slots totally uncovered. Returns the
+ * lowest level with ANY fair result found.
  *
- * If that fairness condition is never achieved within the iteration cap
- * (e.g. one structurally-constrained employee can never be satisfied no
- * matter how far targets are reduced), falls back to whichever attempt
- * produced the most total hours actually worked -- this avoids the
- * catastrophic collapse failure mode where blindly continuing to reduce
- * shrinks the eligible pool (low-FTE employees hit a 0 target and become
- * permanently ineligible) and makes the outcome progressively worse.
+ * If no level ever achieves full fairness (e.g. one structurally-
+ * constrained employee can never be satisfied no matter how far targets
+ * are reduced), falls back to whichever single attempt (across every
+ * level and every shuffle tried) produced the most total hours actually
+ * worked -- this avoids the collapse failure mode where blindly
+ * continuing to reduce shrinks the eligible pool and makes things worse.
+ *
+ * A wall-clock budget guarantees this always returns well within a
+ * typical serverless function timeout, even in a pathological case that
+ * never converges.
  */
 export function generateSchedule(input: GenerateScheduleInput): GenerateScheduleResult {
-  let shortfallDays = 0;
   const EPSILON = 0.01; // float tolerance for the hours comparison
+  const startedAt = Date.now();
 
   let fallback: Omit<GenerateScheduleResult, 'shortfallDays'> | null = null;
   let fallbackShortfallDays = 0;
   let fallbackScore = -Infinity; // total hours actually assigned, higher is better
 
-  while (shortfallDays <= MAX_SHORTFALL_ITERATIONS) {
-    const attempt = attemptGeneration(input, shortfallDays);
+  for (let shortfallDays = 0; shortfallDays <= MAX_SHORTFALL_ITERATIONS; shortfallDays++) {
+    let levelBest: Omit<GenerateScheduleResult, 'shortfallDays'> | null = null;
+    let levelBestUnfilled = Infinity;
 
-    const totalAssignedHours = Object.values(attempt.employeeHoursSummary).reduce(
-      (sum, s) => sum + s.assignedHours,
-      0
-    );
-    if (totalAssignedHours > fallbackScore + EPSILON) {
-      fallback = attempt;
-      fallbackScore = totalAssignedHours;
-      fallbackShortfallDays = shortfallDays;
+    for (let attemptNum = 0; attemptNum < ATTEMPTS_PER_LEVEL; attemptNum++) {
+      if (Date.now() - startedAt > TIME_BUDGET_MS) {
+        // Time budget hit -- return whatever we've got rather than risk
+        // exceeding a platform function timeout.
+        if (levelBest) return { ...levelBest, shortfallDays };
+        return { ...fallback!, shortfallDays: fallbackShortfallDays };
+      }
+
+      const attempt = attemptGeneration(input, shortfallDays);
+
+      const totalAssignedHours = Object.values(attempt.employeeHoursSummary).reduce(
+        (sum, s) => sum + s.assignedHours,
+        0
+      );
+      if (totalAssignedHours > fallbackScore + EPSILON) {
+        fallback = attempt;
+        fallbackScore = totalAssignedHours;
+        fallbackShortfallDays = shortfallDays;
+      }
+
+      const anyoneShort = Object.values(attempt.employeeHoursSummary).some(
+        (s) => s.assignedHours < s.effectiveTargetHours - EPSILON
+      );
+      if (!anyoneShort) {
+        if (attempt.unfilledSlots.length < levelBestUnfilled) {
+          levelBest = attempt;
+          levelBestUnfilled = attempt.unfilledSlots.length;
+        }
+        if (levelBestUnfilled === 0) break; // perfect coverage at this level, stop searching it
+      }
     }
 
-    const anyoneShort = Object.values(attempt.employeeHoursSummary).some(
-      (s) => s.assignedHours < s.effectiveTargetHours - EPSILON
-    );
-    if (!anyoneShort) {
-      // Everyone genuinely reached this reduction level's target -- this
-      // is the fair, correct answer. Stop here rather than searching
-      // further (which would only reduce everyone's hours needlessly).
-      return { ...attempt, shortfallDays };
+    if (levelBest) {
+      // Found at least one fully-fair result at this level -- use the
+      // best one found and don't escalate to a worse (more-reduced) level.
+      return { ...levelBest, shortfallDays };
     }
-
-    shortfallDays += 1;
   }
 
-  // Never achieved full fairness within the cap -- best-effort fallback.
+  // No level ever achieved full fairness within the cap -- best-effort fallback.
   return { ...fallback!, shortfallDays: fallbackShortfallDays };
 }
 
@@ -235,8 +269,19 @@ function attemptGeneration(
   // is a deliberate ordering choice -- per spec, a 24hr availability
   // pick should be used as a 24hr shift wherever the rules allow it,
   // rather than being outscored by two 12hr picks summing higher.
+  //
+  // Processing order is SHUFFLED (not chronological) before this pass.
+  // Processing strictly in calendar order means people run out of
+  // remaining target hours disproportionately toward the end of the
+  // cycle, which structurally clusters unfilled slots there. Shuffling
+  // spreads any unavoidable gaps randomly across the whole 6 weeks
+  // instead. This is safe -- the hard-constraint checks (rest, streak,
+  // rolling windows) compare against each shift's nearest neighbor IN
+  // TIME, not insertion order, so they're correct regardless of the
+  // order slots are processed in.
+  const shuffledFullPass = shuffle(pendingForFullPass);
   const pendingForSplitPass: { date: string; slotNumber: 1 | 2 }[] = [];
-  for (const { date, slotNumber } of pendingForFullPass) {
+  for (const { date, slotNumber } of shuffledFullPass) {
     const full24Candidate = pickBest(employeeIds, date, 'full_24');
     if (full24Candidate) {
       commit(full24Candidate.employeeId, date, slotNumber, 'full_24');
@@ -249,8 +294,9 @@ function attemptGeneration(
   // shifts, each half resolved independently and only from employees who
   // specifically indicated 12hr availability for that half (or last
   // resort) -- someone who only marked available_24 was reserved for
-  // pass 1 and won't be pulled into a 12hr shift here.
-  for (const { date, slotNumber } of pendingForSplitPass) {
+  // pass 1 and won't be pulled into a 12hr shift here. Also shuffled for
+  // the same distribution reason as pass 1.
+  for (const { date, slotNumber } of shuffle(pendingForSplitPass)) {
     resolveHalf(date, slotNumber, 'day_12');
     resolveHalf(date, slotNumber, 'night_12');
   }
