@@ -46,19 +46,27 @@ export function generateSchedule(input: GenerateScheduleInput): GenerateSchedule
 
   let best: Omit<GenerateScheduleResult, 'shortfallDays'> | null = null;
   let bestShortfallDays = 0;
-  let bestScore = Infinity; // total shortfall hours across all employees, lower is better
+  // Maximize total hours actually assigned across everyone. This is
+  // deliberately NOT "minimize shortfall relative to each attempt's own
+  // target" -- that comparison is unfair across iterations, since the
+  // target itself shrinks each round. A later round can look "fully
+  // satisfied" simply because its target got small enough to trivially
+  // meet, even though strictly fewer real hours were worked overall.
+  // Maximizing actual hours worked directly favors the least-aggressive
+  // reduction that gets the job done, matching what you'd actually want.
+  let bestScore = -Infinity;
   let iterationsSinceImprovement = 0;
 
   while (shortfallDays <= MAX_SHORTFALL_ITERATIONS) {
     const attempt = attemptGeneration(input, shortfallDays);
-    const totalShortfallHours = Object.values(attempt.employeeHoursSummary).reduce(
-      (sum, s) => sum + Math.max(0, s.effectiveTargetHours - s.assignedHours),
+    const totalAssignedHours = Object.values(attempt.employeeHoursSummary).reduce(
+      (sum, s) => sum + s.assignedHours,
       0
     );
 
-    if (totalShortfallHours < bestScore - EPSILON) {
+    if (totalAssignedHours > bestScore + EPSILON) {
       best = attempt;
-      bestScore = totalShortfallHours;
+      bestScore = totalAssignedHours;
       bestShortfallDays = shortfallDays;
       iterationsSinceImprovement = 0;
     } else {
