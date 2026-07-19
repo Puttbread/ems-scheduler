@@ -13,7 +13,7 @@ import { availabilityWeight, computeScore } from './scoring';
 const CYCLE_DAYS = 42;
 const HOURS_PER_FTE = 240; // 1.0 FTE = 40hrs/week x 6 weeks, per clarified spec
 const MAX_SHORTFALL_ITERATIONS = 15;
-const ATTEMPTS_PER_LEVEL = 30; // random-shuffle retries at each shortfall level before escalating
+const ATTEMPTS_PER_LEVEL = 75; // random-shuffle retries at each shortfall level before escalating
 const TIME_BUDGET_MS = 20_000; // hard wall-clock cutoff, well under typical serverless timeouts
 
 interface Candidate {

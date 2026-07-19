@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { WeekedCalendar } from '@/components/WeekedCalendar';
+import { computeCoverageGaps } from '@/lib/scheduler/coverage';
 
 const DOW = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const SHIFT_LABELS: Record<string, string> = {
@@ -17,6 +18,7 @@ export default function PrintableSchedulePage() {
   const supabase = createClient();
   const [schedule, setSchedule] = useState<any | null>(null);
   const [assignments, setAssignments] = useState<any[]>([]);
+  const [overrides, setOverrides] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -27,6 +29,11 @@ export default function PrintableSchedulePage() {
       .select('employee_id, profiles(full_name), shift_slots(work_date, shift_type, slot_number)')
       .eq('schedule_id', id);
     setAssignments(a ?? []);
+    const { data: ov } = await supabase
+      .from('schedule_overrides')
+      .select('work_date, slot_number, portion, override_type')
+      .eq('schedule_id', id);
+    setOverrides(ov ?? []);
     setLoading(false);
   }, [supabase, id]);
 
@@ -37,6 +44,9 @@ export default function PrintableSchedulePage() {
   if (loading || !schedule) {
     return <div style={{ padding: 24, fontFamily: 'sans-serif' }}>Loading…</div>;
   }
+
+  const gaps = computeCoverageGaps({ startDate: schedule.start_date, assignments, overrides });
+  const gapDates = new Set(gaps.map((g) => g.date));
 
   return (
     <div className="print-page">
@@ -72,6 +82,8 @@ export default function PrintableSchedulePage() {
           padding: 6px;
           min-height: 80px;
           font-size: 0.75rem;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
         }
         .print-day .label {
           font-weight: 600;
@@ -122,9 +134,14 @@ export default function PrintableSchedulePage() {
         Schedule: {schedule.start_date} – {schedule.end_date}
       </h1>
       {schedule.shortfall_days > 0 && (
-        <p style={{ color: '#a15c00', fontSize: '0.85rem', marginBottom: 20 }}>
+        <p style={{ color: '#a15c00', fontSize: '0.85rem', marginBottom: 4 }}>
           Note: shortened by {schedule.shortfall_days} day(s) per employee to reach a workable
           schedule.
+        </p>
+      )}
+      {gaps.length > 0 && (
+        <p style={{ color: '#b3261e', fontSize: '0.85rem', marginBottom: 20 }}>
+          {gaps.length} unfilled slot{gaps.length === 1 ? '' : 's'} -- highlighted below.
         </p>
       )}
 
@@ -133,10 +150,20 @@ export default function PrintableSchedulePage() {
         renderDay={(date) => {
           const dow = new Date(date + 'T00:00:00Z').getUTCDay();
           const dayShifts = assignments.filter((a) => a.shift_slots?.work_date === date);
+          const hasGap = gapDates.has(date);
           return (
-            <div className="print-day" key={date}>
+            <div
+              className="print-day"
+              key={date}
+              style={
+                hasGap
+                  ? { background: '#fdecea', borderColor: '#b3261e', borderWidth: 2 }
+                  : undefined
+              }
+            >
               <div className="label">
                 {DOW[dow].slice(0, 3)} {date.slice(5)}
+                {hasGap && <span style={{ color: '#b3261e' }}> ⚠</span>}
               </div>
               {dayShifts.length === 0 ? (
                 <span style={{ color: '#999' }}>—</span>

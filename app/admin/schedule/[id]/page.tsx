@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { TopBar } from '@/components/TopBar';
+import { computeCoverageGaps } from '@/lib/scheduler/coverage';
 
 const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const SHIFT_LABELS: Record<string, string> = {
@@ -139,6 +140,8 @@ export default function ScheduleDetailPage() {
   }
 
   const days = Array.from({ length: 42 }, (_, i) => addDays(schedule.start_date, i));
+  const gaps = computeCoverageGaps({ startDate: schedule.start_date, assignments, overrides });
+  const gapDates = new Set(gaps.map((g) => `${g.date}|${g.slotNumber}`));
 
   return (
     <div className="shell">
@@ -153,6 +156,11 @@ export default function ScheduleDetailPage() {
           <div className="warn-note" style={{ marginTop: 12 }}>
             This schedule was shortened by {schedule.shortfall_days} day(s) per employee to reach a
             workable result.
+          </div>
+        )}
+        {gaps.length > 0 && (
+          <div className="warn-note" style={{ marginTop: 8, borderColor: 'var(--red)', color: 'var(--red)' }}>
+            {gaps.length} unfilled slot{gaps.length === 1 ? '' : 's'} -- highlighted below.
           </div>
         )}
 
@@ -327,7 +335,14 @@ export default function ScheduleDetailPage() {
                       {DOW[d.getUTCDay()]} {date}
                     </td>
                     {[1, 2].map((n) => (
-                      <td key={n}>
+                      <td
+                        key={n}
+                        style={
+                          gapDates.has(`${date}|${n}`)
+                            ? { background: 'rgba(227, 85, 74, 0.12)', border: '1px solid var(--red)' }
+                            : undefined
+                        }
+                      >
                         {overridesFor(n as 1 | 2).map((o) => (
                           <div
                             key={o.id}
