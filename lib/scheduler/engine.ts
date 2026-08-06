@@ -90,7 +90,19 @@ export function generateSchedule(input: GenerateScheduleInput): GenerateSchedule
       const anyoneShort = Object.values(attempt.employeeHoursSummary).some(
         (s) => s.assignedHours < s.effectiveTargetHours - EPSILON
       );
-      if (!anyoneShort) {
+      // A result only counts as genuinely "fair" if it also has real
+      // utilization (totalAssignedHours > 0). Without this guard, once
+      // uniform reduction drives EVERY employee's target down to 0 (which
+      // happens once shortfallDays*24 exceeds even the largest individual
+      // target), a completely empty schedule trivially satisfies
+      // "nobody is short of their target" -- 0 assigned >= 0 target for
+      // everyone -- and would otherwise be wrongly accepted as a win,
+      // even though earlier, lower-reduction levels had far more real
+      // coverage. Rejecting zero-utilization "fairness" forces the
+      // search to keep going and eventually fall through to the
+      // best-effort fallback (by total hours) instead of settling on a
+      // useless empty result.
+      if (!anyoneShort && totalAssignedHours > EPSILON) {
         if (attempt.unfilledSlots.length < levelBestUnfilled) {
           levelBest = attempt;
           levelBestUnfilled = attempt.unfilledSlots.length;
