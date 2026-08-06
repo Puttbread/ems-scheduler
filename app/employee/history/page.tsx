@@ -14,6 +14,7 @@ export default function EmployeeHistoryPage() {
   const [pastSchedules, setPastSchedules] = useState<any[]>([]);
   const [selected, setSelected] = useState<any | null>(null);
   const [assignments, setAssignments] = useState<any[]>([]);
+  const [namesById, setNamesById] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -29,6 +30,16 @@ export default function EmployeeHistoryPage() {
       .in('status', ['published', 'archived'])
       .order('start_date', { ascending: false });
     setPastSchedules(data ?? []);
+
+    // Names come from staff_directory, not an embedded profiles join --
+    // profiles has RLS restricting each employee to their own row, so an
+    // embedded profiles(full_name) lookup silently returns nothing for
+    // anyone else's shifts. staff_directory has no such restriction.
+    const { data: dir } = await supabase.from('staff_directory').select('id, full_name');
+    const map: Record<string, string> = {};
+    (dir ?? []).forEach((s) => (map[s.id] = s.full_name));
+    setNamesById(map);
+
     setLoading(false);
   }, [supabase]);
 
@@ -40,7 +51,7 @@ export default function EmployeeHistoryPage() {
     setSelected(schedule);
     const { data } = await supabase
       .from('assignments')
-      .select('employee_id, profiles(full_name), shift_slots(work_date, shift_type, slot_number)')
+      .select('employee_id, shift_slots(work_date, shift_type, slot_number)')
       .eq('schedule_id', schedule.id);
     setAssignments(data ?? []);
   }
@@ -125,7 +136,7 @@ export default function EmployeeHistoryPage() {
                             className={`badge ${cls}`}
                             style={mine ? { boxShadow: '0 0 0 1.5px var(--amber)' } : undefined}
                           >
-                            {a.profiles?.full_name ?? '—'}
+                            {namesById[a.employee_id] ?? '—'}
                           </span>
                         );
                       })}

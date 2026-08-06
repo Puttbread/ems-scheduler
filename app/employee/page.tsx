@@ -32,7 +32,6 @@ export default function EmployeePage() {
   const supabase = createClient();
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
-  const [fullName, setFullName] = useState<string>('');
   const [schedule, setSchedule] = useState<any | null>(null);
   const [availability, setAvailability] = useState<Record<string, AvailOption>>({});
   const [hours, setHours] = useState({
@@ -43,6 +42,7 @@ export default function EmployeePage() {
     ready_at: null as string | null,
   });
   const [assignments, setAssignments] = useState<any[]>([]);
+  const [namesById, setNamesById] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -52,13 +52,6 @@ export default function EmployeePage() {
     } = await supabase.auth.getUser();
     if (!user) return;
     setUserId(user.id);
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('full_name')
-      .eq('id', user.id)
-      .single();
-    setFullName(profile?.full_name ?? '');
 
     // Prefer an in-progress ("collecting") cycle; otherwise show the most
     // recently published one.
@@ -104,9 +97,19 @@ export default function EmployeePage() {
       if (current.status === 'published') {
         const { data: a } = await supabase
           .from('assignments')
-          .select('employee_id, profiles(full_name), shift_slots(work_date, shift_type, slot_number)')
+          .select('employee_id, shift_slots(work_date, shift_type, slot_number)')
           .eq('schedule_id', current.id);
         setAssignments(a ?? []);
+
+        // Names come from staff_directory, not an embedded profiles join --
+        // profiles has RLS restricting each employee to their own row, so
+        // an embedded profiles(full_name) lookup silently returns nothing
+        // for anyone else's shifts. staff_directory has no such
+        // restriction and is exactly what it's for.
+        const { data: dir } = await supabase.from('staff_directory').select('id, full_name');
+        const map: Record<string, string> = {};
+        (dir ?? []).forEach((s) => (map[s.id] = s.full_name));
+        setNamesById(map);
       }
     }
     setLoading(false);
@@ -227,7 +230,6 @@ export default function EmployeePage() {
       <div className="shell">
         <TopBar role="employee" />
         <div className="main">
-          <h2 style={{ fontSize: '1.3rem', marginBottom: 20 }}>Welcome, {fullName}</h2>
           <div className="card">
             <h2>No active schedule</h2>
             <p style={{ color: 'var(--muted)' }}>
@@ -247,7 +249,6 @@ export default function EmployeePage() {
     <div className="shell">
       <TopBar role="employee" />
       <div className="main">
-        <h2 style={{ fontSize: '1.3rem', marginBottom: 20 }}>Welcome, {fullName}</h2>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div className="eyebrow">6-week cycle</div>
@@ -440,7 +441,7 @@ export default function EmployeePage() {
                             className={`badge ${cls}`}
                             style={mine ? { boxShadow: '0 0 0 1.5px var(--amber)' } : undefined}
                           >
-                            {a.profiles?.full_name ?? '—'}
+                            {namesById[a.employee_id] ?? '—'}
                           </span>
                         );
                       })}
