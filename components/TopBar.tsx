@@ -1,12 +1,21 @@
 'use client';
 
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import { syncThemeFromProfile } from '@/lib/theme';
 
 export function TopBar({ role }: { role: 'employee' | 'admin' }) {
   const router = useRouter();
   const supabase = createClient();
+
+  useEffect(() => {
+    syncThemeFromProfile(supabase);
+    // Only needs to run once per mount -- TopBar is present on every
+    // authenticated page, so this effectively syncs on every navigation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function signOut() {
     await supabase.auth.signOut();

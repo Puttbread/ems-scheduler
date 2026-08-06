@@ -9,9 +9,40 @@
   --amber-dim: #7a5726;
   --red: #e3554a;
   --green: #4caf7d;
+  --btn-fg: #1a1204;
+  --danger-btn-fg: #220000;
+  --night-bg: #24344a;
+  --night-fg: #7ea6e0;
+  --full24-bg: #2c4a34;
+  --empty-bg: #3a1f1f;
+  --warn-bg: #3a2a12;
   --font-display: 'Bitter', Georgia, serif;
   --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+}
+
+/* Light theme -- applied via data-theme="light" on <html>, set from the
+   employee's saved preference (see components/ThemeSync.tsx). Keeps the
+   same "dispatch console" structure and amber accent, just flipped for a
+   light/paper background with deepened accent colors for contrast. */
+[data-theme='light'] {
+  --ink: #f5f1e8;
+  --panel: #ffffff;
+  --panel-2: #f0ece1;
+  --line: #ddd6c5;
+  --paper: #221f18;
+  --muted: #756e5d;
+  --amber: #b8720f;
+  --amber-dim: #f0dcb3;
+  --red: #c0392b;
+  --green: #2f8f5b;
+  --btn-fg: #fffaf0;
+  --danger-btn-fg: #fff5f3;
+  --night-bg: #dbe6f5;
+  --night-fg: #2a5a99;
+  --full24-bg: #d9ede1;
+  --empty-bg: #f8dcd8;
+  --warn-bg: #fbeecb;
 }
 
 * {
@@ -26,6 +57,7 @@ body {
   color: var(--paper);
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 a {
@@ -113,7 +145,7 @@ h2 {
   align-items: center;
   gap: 6px;
   background: var(--amber);
-  color: #1a1204;
+  color: var(--btn-fg);
   border: none;
   padding: 10px 16px;
   border-radius: 4px;
@@ -139,7 +171,7 @@ h2 {
 
 .btn.danger {
   background: var(--red);
-  color: #200;
+  color: var(--danger-btn-fg);
 }
 
 input,
@@ -222,15 +254,15 @@ th {
   color: var(--amber);
 }
 .badge.night {
-  background: #24344a;
-  color: #7ea6e0;
+  background: var(--night-bg);
+  color: var(--night-fg);
 }
 .badge.full24 {
-  background: #2c4a34;
+  background: var(--full24-bg);
   color: var(--green);
 }
 .badge.empty {
-  background: #3a1f1f;
+  background: var(--empty-bg);
   color: var(--red);
 }
 
@@ -253,7 +285,7 @@ th {
 }
 .status-pill.published {
   color: var(--green);
-  border-color: #2c4a34;
+  border-color: var(--full24-bg);
 }
 
 .form-row {
@@ -276,7 +308,7 @@ th {
 }
 
 .warn-note {
-  background: #3a2a12;
+  background: var(--warn-bg);
   border: 1px solid var(--amber-dim);
   color: var(--amber);
   padding: 10px 14px;

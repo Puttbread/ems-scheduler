@@ -32,6 +32,7 @@ export default function EmployeePage() {
   const supabase = createClient();
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
+  const [fullName, setFullName] = useState<string>('');
   const [schedule, setSchedule] = useState<any | null>(null);
   const [availability, setAvailability] = useState<Record<string, AvailOption>>({});
   const [hours, setHours] = useState({
@@ -51,6 +52,13 @@ export default function EmployeePage() {
     } = await supabase.auth.getUser();
     if (!user) return;
     setUserId(user.id);
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', user.id)
+      .single();
+    setFullName(profile?.full_name ?? '');
 
     // Prefer an in-progress ("collecting") cycle; otherwise show the most
     // recently published one.
@@ -219,6 +227,7 @@ export default function EmployeePage() {
       <div className="shell">
         <TopBar role="employee" />
         <div className="main">
+          <h2 style={{ fontSize: '1.3rem', marginBottom: 20 }}>Welcome, {fullName}</h2>
           <div className="card">
             <h2>No active schedule</h2>
             <p style={{ color: 'var(--muted)' }}>
@@ -238,6 +247,7 @@ export default function EmployeePage() {
     <div className="shell">
       <TopBar role="employee" />
       <div className="main">
+        <h2 style={{ fontSize: '1.3rem', marginBottom: 20 }}>Welcome, {fullName}</h2>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div className="eyebrow">6-week cycle</div>
