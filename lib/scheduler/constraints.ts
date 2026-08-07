@@ -8,7 +8,7 @@ export function shiftHours(type: ShiftType): number {
   return type === 'full_24' ? 24 : 12;
 }
 
-function shiftWindow(date: string, type: ShiftType): { startMs: number; endMs: number } {
+export function shiftWindow(date: string, type: ShiftType): { startMs: number; endMs: number } {
   const dayStart = new Date(date + 'T00:00:00Z').getTime();
   const HOUR = 3600_000;
   if (type === 'day_12') return { startMs: dayStart, endMs: dayStart + 12 * HOUR };
@@ -144,6 +144,25 @@ export function checkHardConstraints(
   }
 
   return null;
+}
+
+/**
+ * True if assigning this candidate shift would sit within a 24hr gap of
+ * an existing shift for this employee (before or after) -- i.e. it would
+ * continue a streak rather than start a fresh one. Used only for the
+ * "prefer clustered shifts" scoring bonus; the actual streak-length hard
+ * cap is still enforced separately in checkHardConstraints regardless of
+ * this preference.
+ */
+export function wouldContinueStreak(state: EmployeeState, date: string, type: ShiftType): boolean {
+  const { startMs, endMs } = shiftWindow(date, type);
+  for (const s of state.shifts) {
+    const w = shiftWindow(s.date, s.type);
+    const gapBefore = (startMs - w.endMs) / 3_600_000; // candidate starts after this shift ends
+    const gapAfter = (w.startMs - endMs) / 3_600_000; // this shift starts after candidate ends
+    if ((gapBefore >= 0 && gapBefore <= 24) || (gapAfter >= 0 && gapAfter <= 24)) return true;
+  }
+  return false;
 }
 
 /** Mutates state to reflect a newly made assignment. */

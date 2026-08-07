@@ -89,6 +89,7 @@ export async function POST(request: Request) {
     preferredDaysOfWeek: p.preferred_days_of_week ?? [],
     noDayPreference: p.no_day_preference,
     preferredPartnerIds: partnersByEmployee.get(p.employee_id) ?? [],
+    preferClusteredShifts: p.prefer_clustered_shifts ?? false,
   }));
 
   const cycleHoursInputs: CycleHoursInput[] = (cycleHours ?? []).map((c) => ({

@@ -7,7 +7,7 @@ import type {
   ShiftAssignmentResult,
   ShiftType,
 } from './types';
-import { addDays, applyAssignment, checkHardConstraints } from './constraints';
+import { addDays, applyAssignment, checkHardConstraints, wouldContinueStreak } from './constraints';
 import { availabilityWeight, computeScore } from './scoring';
 
 const CYCLE_DAYS = 42;
@@ -192,6 +192,7 @@ function attemptGeneration(
       prefs: prefsByEmployee.get(employeeId),
       alreadyAssignedThisWeekendCounterpart: hasWeekendCounterpart(employeeId, date, states),
       partnersAlreadyOnThisShift: sameShiftOccupants.get(`${date}|${type}`) ?? [],
+      continuesStreak: wouldContinueStreak(states.get(employeeId)!, date, type),
     });
   }
 

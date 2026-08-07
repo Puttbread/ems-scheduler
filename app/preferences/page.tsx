@@ -18,6 +18,7 @@ export default function PreferencesPage() {
   const [prefs, setPrefs] = useState({
     prefer_fri_sun_same_weekend: false,
     max_consecutive_shifts: 3,
+    prefer_clustered_shifts: false,
     preferred_days_of_week: [] as number[],
     no_day_preference: true,
     carried_forward_from: null as string | null,
@@ -92,6 +93,7 @@ export default function PreferencesPage() {
       setPrefs({
         prefer_fri_sun_same_weekend: existing.prefer_fri_sun_same_weekend,
         max_consecutive_shifts: existing.max_consecutive_shifts,
+        prefer_clustered_shifts: existing.prefer_clustered_shifts ?? false,
         preferred_days_of_week: existing.preferred_days_of_week ?? [],
         no_day_preference: existing.no_day_preference,
         carried_forward_from: existing.carried_forward_from,
@@ -146,6 +148,7 @@ export default function PreferencesPage() {
         schedule_id: schedule.id,
         prefer_fri_sun_same_weekend: prefs.prefer_fri_sun_same_weekend,
         max_consecutive_shifts: prefs.max_consecutive_shifts,
+        prefer_clustered_shifts: prefs.prefer_clustered_shifts,
         preferred_days_of_week: prefs.no_day_preference ? [] : prefs.preferred_days_of_week,
         no_day_preference: prefs.no_day_preference,
         carried_forward_from: null, // once explicitly saved, no longer just a carried-forward default
@@ -270,6 +273,21 @@ export default function PreferencesPage() {
                   </option>
                 ))}
               </select>
+
+              <div className="checkbox-row" style={{ marginTop: 14 }}>
+                <input
+                  type="checkbox"
+                  id="cluster"
+                  checked={prefs.prefer_clustered_shifts}
+                  onChange={(e) =>
+                    setPrefs((p) => ({ ...p, prefer_clustered_shifts: e.target.checked }))
+                  }
+                />
+                <label htmlFor="cluster">
+                  Prefer to cluster my shifts together (up to the limit above) rather than spread
+                  out, to maximize stretches of time off
+                </label>
+              </div>
             </div>
 
             <div className="card">

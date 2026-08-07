@@ -34,6 +34,10 @@ export function availabilityWeight(option: AvailabilityOption, type: ShiftType):
 const FRI_SUN_WEIGHT = 0.75;
 const DAY_OF_WEEK_WEIGHT = 0.75;
 const PARTNER_WEIGHT = 0.3; // lowest priority per spec: "should not stop a full schedule"
+const CLUSTER_WEIGHT = 0.5; // moderate weight: a real preference, but not as strong as the
+// explicit day-of-week/Friday-Sunday asks. This is a judgment call since the
+// original spec never weighted a clustering preference -- adjust if it should
+// pull harder or softer than the other bonuses.
 
 /**
  * Composite score for a candidate covering a given date/shift. Preference
@@ -52,6 +56,8 @@ export function computeScore(params: {
   alreadyAssignedThisWeekendCounterpart: boolean; // true if this employee is already
   // slated to work the Fri (checking Sun) or Sun (checking Fri) of the same weekend
   partnersAlreadyOnThisShift: string[]; // employee IDs already assigned to this exact slot
+  continuesStreak: boolean; // true if this candidate shift sits within 24hrs of an
+  // existing shift for this employee (would extend, not start, a streak)
 }): number {
   let score = params.baseWeight;
 
@@ -76,6 +82,10 @@ export function computeScore(params: {
 
   if (params.prefs.preferredPartnerIds.some((id) => params.partnersAlreadyOnThisShift.includes(id))) {
     score += PARTNER_WEIGHT;
+  }
+
+  if (params.prefs.preferClusteredShifts && params.continuesStreak) {
+    score += CLUSTER_WEIGHT;
   }
 
   return score;

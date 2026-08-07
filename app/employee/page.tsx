@@ -34,6 +34,7 @@ export default function EmployeePage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [schedule, setSchedule] = useState<any | null>(null);
   const [availability, setAvailability] = useState<Record<string, AvailOption>>({});
+  const [dayTypes, setDayTypes] = useState<Record<string, 'vacation' | 'education' | 'other' | null>>({});
   const [hours, setHours] = useState({
     vacation_hours: 0,
     ed_hours: 0,
@@ -79,12 +80,17 @@ export default function EmployeePage() {
     if (current) {
       const { data: avail } = await supabase
         .from('availability')
-        .select('work_date, option')
+        .select('work_date, option, day_type')
         .eq('schedule_id', current.id)
         .eq('employee_id', user.id);
       const map: Record<string, AvailOption> = {};
-      (avail ?? []).forEach((a) => (map[a.work_date] = a.option as AvailOption));
+      const typeMap: Record<string, 'vacation' | 'education' | 'other' | null> = {};
+      (avail ?? []).forEach((a) => {
+        map[a.work_date] = a.option as AvailOption;
+        typeMap[a.work_date] = (a.day_type as any) ?? null;
+      });
       setAvailability(map);
+      setDayTypes(typeMap);
 
       const { data: ch } = await supabase
         .from('cycle_hours')
@@ -157,12 +163,18 @@ export default function EmployeePage() {
     if (!schedule || !userId) return;
     setSaving(date);
     setSaveError(null);
+    // If the employee manually picks something other than "not available"
+    // while a vacation/education/other tag is set, that's an implicit
+    // signal they no longer mean it as a day off -- clear the tag too,
+    // since "available to work" and "on vacation" can't both be true.
+    const clearingDayType = option !== 'not_available' && !!dayTypes[date];
     const { error } = await supabase.from('availability').upsert(
       {
         employee_id: userId,
         schedule_id: schedule.id,
         work_date: date,
         option,
+        ...(clearingDayType ? { day_type: null } : {}),
       },
       { onConflict: 'employee_id,schedule_id,work_date' }
     );
@@ -172,6 +184,34 @@ export default function EmployeePage() {
       return; // don't update local display if the write actually failed
     }
     setAvailability((prev) => ({ ...prev, [date]: option }));
+    if (clearingDayType) setDayTypes((prev) => ({ ...prev, [date]: null }));
+  }
+
+  async function toggleDayType(date: string, type: 'vacation' | 'education' | 'other') {
+    if (!schedule || !userId) return;
+    setSaveError(null);
+    const next = dayTypes[date] === type ? null : type;
+    // Checking a day-type tag also forces that day's availability to
+    // "not available" -- a vacation/education/other day isn't a working
+    // one. Unchecking just clears the tag; the dropdown stays wherever
+    // it was (usually "not available"), editable normally afterward.
+    const nextOption: AvailOption = next ? 'not_available' : availability[date] ?? 'not_available';
+    const { error } = await supabase.from('availability').upsert(
+      {
+        employee_id: userId,
+        schedule_id: schedule.id,
+        work_date: date,
+        option: nextOption,
+        day_type: next,
+      },
+      { onConflict: 'employee_id,schedule_id,work_date' }
+    );
+    if (error) {
+      setSaveError(`Couldn't save ${date}: ${error.message}`);
+      return;
+    }
+    setDayTypes((prev) => ({ ...prev, [date]: next }));
+    setAvailability((prev) => ({ ...prev, [date]: nextOption }));
   }
 
   async function saveHours() {
@@ -351,8 +391,17 @@ export default function EmployeePage() {
                   startDate={schedule.start_date}
                   renderDay={(date) => {
                     const d = new Date(date + 'T00:00:00Z');
+                    const type = dayTypes[date];
+                    const cellClass =
+                      type === 'vacation'
+                        ? 'day-cell vacation'
+                        : type === 'education'
+                        ? 'day-cell education'
+                        : type === 'other'
+                        ? 'day-cell other-day'
+                        : 'day-cell';
                     return (
-                      <div className="day-cell" key={date}>
+                      <div className={cellClass} key={date}>
                         <div className="date-label">
                           {DOW[d.getUTCDay()]} {date.slice(5)}
                         </div>
@@ -367,6 +416,32 @@ export default function EmployeePage() {
                             </option>
                           ))}
                         </select>
+                        <div className="day-type-toggles">
+                          <button
+                            type="button"
+                            className={`day-type-btn${type === 'vacation' ? ' active vacation' : ''}`}
+                            title="Vacation"
+                            onClick={() => toggleDayType(date, 'vacation')}
+                          >
+                            V
+                          </button>
+                          <button
+                            type="button"
+                            className={`day-type-btn${type === 'education' ? ' active education' : ''}`}
+                            title="Education"
+                            onClick={() => toggleDayType(date, 'education')}
+                          >
+                            E
+                          </button>
+                          <button
+                            type="button"
+                            className={`day-type-btn${type === 'other' ? ' active other-day' : ''}`}
+                            title="Other"
+                            onClick={() => toggleDayType(date, 'other')}
+                          >
+                            O
+                          </button>
+                        </div>
                         {saving === date && (
                           <span style={{ fontSize: '0.65rem', color: 'var(--amber)' }}>saving…</span>
                         )}

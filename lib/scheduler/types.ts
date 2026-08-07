@@ -31,6 +31,7 @@ export interface PreferencesInput {
   preferredDaysOfWeek: number[]; // 0=Sun..6=Sat
   noDayPreference: boolean;
   preferredPartnerIds: string[];
+  preferClusteredShifts: boolean; // prefer continuing an existing streak over starting fresh, up to maxConsecutiveShifts
 }
 
 export interface CycleHoursInput {
