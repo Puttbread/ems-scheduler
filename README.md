@@ -14,7 +14,7 @@ algorithm and exports the result.
 
 1. Create a project at https://supabase.com.
 2. In the SQL Editor, run the migrations in `supabase/migrations/` **in
-   order** (0001 through 0008).
+   order** (0001 through 0012).
 3. In **Authentication > Providers**, ensure Email is enabled.
 4. In **Authentication > URL Configuration**, set your site URL (e.g. your
    Vercel/Netlify deployment URL) and add `/login/reset` as an allowed
@@ -63,6 +63,34 @@ npm run dev
 - **Netlify:** import the repo, set the two env vars, and add the
   `@netlify/plugin-nextjs` plugin (Netlify will usually prompt for this
   automatically when it detects Next.js).
+
+## Keeping the free Supabase project from pausing
+
+Supabase pauses free-tier projects after 7 days with no real database
+activity, and only recovers once someone manually un-pauses it from the
+dashboard. Since this app is realistically only used in bursts around
+each 6-week schedule, a daily cron job (`vercel.json` + `app/api/cron/
+keep-alive/route.ts`) writes one throwaway row to a small
+`keep_alive_pings` table every day, which is enough to keep the project
+active indefinitely -- no manual attention needed. Old rows are cleaned
+up automatically (nothing older than 14 days is kept), so the table
+never grows.
+
+**This only works if you deploy on Vercel** -- `vercel.json`'s `crons`
+key is Vercel-specific and does nothing on Netlify or elsewhere. If you
+deploy somewhere else, you'd need an equivalent scheduled trigger for
+that platform (or an external scheduler like GitHub Actions or a free
+uptime-monitor service) hitting `/api/cron/keep-alive` once a day, with a
+`CRON_SECRET` environment variable set to match what the route checks
+for.
+
+**Setup is automatic on Vercel** -- once `vercel.json` is present in the
+repo and you deploy, Vercel detects the `crons` entry, registers the
+schedule, and automatically provisions the `CRON_SECRET` environment
+variable used to authenticate the request. No manual secret setup is
+needed. You can confirm it's running under your Vercel project's
+**Settings → Cron Jobs** tab, and check `keep_alive_pings` in the SQL
+Editor to see a growing (and self-trimming) list of daily timestamps.
 
 ## How scheduling works
 
